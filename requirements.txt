@@ -1,0 +1,5 @@
+SQLAlchemy==2.0.40
+pyodbc==5.2.0
+# Replace the line above with the line below for MAC users
+# pip install --no-binary :all: pyodbc==5.2.0
+pandas==2.2.3
