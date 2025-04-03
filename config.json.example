@@ -1,12 +1,26 @@
 {
-    "source_db": {
+    "pulse_source_db": {
         "server": "source_server",
         "database": "source_database",
         "username": "source_user",
         "password": "source_password",
         "schema": "dbo"
     },
-    "target_db": {
+    "pulse_target_db": {
+        "server": "target_server",
+        "database": "target_database",
+        "username": "target_user",
+        "password": "target_password",
+        "schema": "dbo"
+    },
+    "insights_source_db": {
+        "server": "source_server",
+        "database": "source_database",
+        "username": "source_user",
+        "password": "source_password",
+        "schema": "dbo"
+    },
+    "insights_target_db": {
         "server": "target_server",
         "database": "target_database",
         "username": "target_user",

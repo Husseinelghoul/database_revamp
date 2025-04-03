@@ -11,11 +11,13 @@ if __name__ == "__main__":
     config = load_config("config.json")
 
     # Get source and target database configurations
-    source_config = config["source_db"]
-    target_config = config["target_db"]
+    source_config = config["pulse_source_db"]
+    target_config = config["pulse_target_db"]
+    source_schema = config['pulse_source_db']['schema']
+    target_schema = config['pulse_target_db']['schema']
 
     # Build connection URLs
     source_db_url = build_connection_url(source_config)
     target_db_url = build_connection_url(target_config)
 
-    sync_databases(source_db_url, target_db_url, config)
+    sync_databases(source_db_url, target_db_url, source_schema, target_schema, program_name="pulse")

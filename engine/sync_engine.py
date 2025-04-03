@@ -6,39 +6,35 @@ from utils.logger import setup_logger
 
 logger = setup_logger()
 
-# phases_to_skip = ['phase1','phase2']
-phases_to_skip = []
-
-def sync_databases(source_db_url, target_db_url, config):
+def sync_databases(source_db_url, target_db_url, source_schema: str, target_schema: str, program_name=""):
     """
     Syncs the source database to the target database.
     :param source_db_url: SQLAlchemy connection URL for the source database.
     :param target_db_url: SQLAlchemy connection URL for the target database.
-    :param config: Configuration dictionary containing database details and phases to run.
+    :param source_schema: schema name in the source database.
+    :param target_schema: schema name in the target database.
+    :param program_name: this is just added for logging.
     """
     start_time = time.time()
 
-    logger.info("Starting database sync process...")
+    logger.info(f"Starting database sync process for {program_name}...")
 
     # Phase 1: Schema Duplication
-    if 'phase1' not in phases_to_skip:
-        phase1_start = time.time()
-        logger.info("Reading schema from source database...")
-        schema, tables = read_schema(source_db_url, config['source_db']['schema'])
-        write_schema(target_db_url, tables, config['target_db']['schema'])
-        phase1_end = time.time()
-        logger.info(f"Phase 1 completed in {phase1_end - phase1_start:.2f} seconds")
+    phase1_start = time.time()
+    logger.info("Reading schema from source database...")
+    schema, tables = read_schema(source_db_url, source_schema)
+    write_schema(target_db_url, tables, target_schema)
+    phase1_end = time.time()
+    logger.info(f"Phase 1 completed in {phase1_end - phase1_start:.2f} seconds")
 
     # Phase 2: Data Duplication
-    if 'phase2' not in phases_to_skip:
-        phase2_start = time.time()
-        if 'phase1' not in phases_to_skip:
-            schema, _ = read_schema(source_db_url, config['source_db']['schema'])
-        migrate_data(source_db_url, target_db_url, schema, config)
-        phase2_end = time.time()
-        logger.info(f"Phase 2 completed in {phase2_end - phase2_start:.2f} seconds")
+
+    phase2_start = time.time()
+    migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema)
+    phase2_end = time.time()
+    logger.info(f"Phase 2 completed in {phase2_end - phase2_start:.2f} seconds")
 
     # Additional phases can be added here in the future
 
     end_time = time.time()
-    logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds")
+    logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds for {program_name}")

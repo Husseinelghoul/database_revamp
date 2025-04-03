@@ -46,7 +46,7 @@ def migrate_table(table_name, source_engine, target_engine, source_schema, targe
         logger.error(f"Failed to duplicate data for table: {table_name}. Error: {e}")
         raise MigrationError(f"Failed to migrate table {table_name}: {str(e)}")
 
-def migrate_data(source_db_url, target_db_url, schema, config):
+def migrate_data(source_db_url, target_db_url, schema, source_schema: str, target_schema: str):
     """
     Migrates data from the source database to the target database.
     Handles identity constraints and migrates tables in parallel.
@@ -63,8 +63,8 @@ def migrate_data(source_db_url, target_db_url, schema, config):
                 table_name, 
                 source_engine, 
                 target_engine, 
-                config['source_db']['schema'], 
-                config['target_db']['schema']
+                source_schema, 
+                target_schema
             ): table_name for table_name in schema.keys()
         }
         
