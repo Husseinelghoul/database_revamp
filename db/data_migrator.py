@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import sys
 from utils.logger import setup_logger
+from utils.utils import get_optimal_thread_count_for_io
 
 logger = setup_logger()
 
@@ -56,7 +57,7 @@ def migrate_data(source_db_url, target_db_url, schema, source_schema: str, targe
 
     logger.info("Starting Phase 2: Data Duplication...")
 
-    with ThreadPoolExecutor(max_workers=8) as executor:  # Adjust max_workers as needed
+    with ThreadPoolExecutor(max_workers=get_optimal_thread_count_for_io()) as executor:
         futures = {
             executor.submit(
                 migrate_table, 
