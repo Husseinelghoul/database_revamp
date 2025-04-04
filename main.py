@@ -10,14 +10,19 @@ if __name__ == "__main__":
     # Load the configuration from config.json
     config = load_config("config.json")
 
-    # Get source and target database configurations
-    source_config = config["pulse_source_db"]
-    target_config = config["pulse_target_db"]
-    source_schema = config['pulse_source_db']['schema']
-    target_schema = config['pulse_target_db']['schema']
+    for app in ['pulse','insights']:
+        if app == 'pulse':
+            continue
+        # Get source and target database configurations for pulse
+        source_config = config[f"{app}_source_db"]
+        target_config = config[f"{app}_target_db"]
+        source_schema = config[f'{app}_source_db']['schema']
+        target_schema = config[f'{app}_target_db']['schema']
 
-    # Build connection URLs
-    source_db_url = build_connection_url(source_config)
-    target_db_url = build_connection_url(target_config)
+        # Build connection URLs
+        source_db_url = build_connection_url(source_config)
+        target_db_url = build_connection_url(target_config)
 
-    sync_databases(source_db_url, target_db_url, source_schema, target_schema, program_name="pulse")
+        sync_databases(source_db_url, target_db_url, source_schema, target_schema, program_name=app)
+    
+    logger.info("Closing Program....")
