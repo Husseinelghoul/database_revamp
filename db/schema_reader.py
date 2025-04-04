@@ -1,7 +1,6 @@
 from sqlalchemy import create_engine, inspect, MetaData, Table, Column, ForeignKey, Identity
 from sqlalchemy.types import String, Integer, Float, Boolean, DateTime
 from concurrent.futures import ThreadPoolExecutor
-import functools
 
 from utils.utils import get_optimal_thread_count_for_io
 
