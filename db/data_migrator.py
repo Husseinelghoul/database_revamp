@@ -1,7 +1,10 @@
-from sqlalchemy import create_engine, text, inspect
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import pandas as pd
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import pandas as pd
+from sqlalchemy import create_engine, inspect, text
+
+from config.constants import batch_size, chunk_size
 from utils.logger import setup_logger
 from utils.utils import get_optimal_thread_count_for_io
 
@@ -24,11 +27,8 @@ def migrate_table(table_name, source_engine, target_engine, source_schema, targe
         inspector = inspect(source_engine)
         identity_columns = get_identity_columns(inspector, table_name, source_schema)
         if get_column_count(inspector, table_name, source_schema) > 25:
-            chunksize = 100
-            batch_size = 10
-        else:
-            chunksize = 1000
-            batch_size = 100
+            chunksize = chunksize/10
+            batch_size = batch_size/10
         for chunk in pd.read_sql_table(table_name, source_engine, schema=source_schema, chunksize=chunksize):
             with target_engine.begin() as conn:
                 if identity_columns:

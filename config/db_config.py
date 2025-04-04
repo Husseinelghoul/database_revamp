@@ -1,4 +1,8 @@
 import json
+import urllib.parse
+
+from constants import obcd_driver_version
+
 
 def load_config(config_path="config.json"):
     """
@@ -16,4 +20,5 @@ def build_connection_url(config):
     :param config: Dictionary containing database connection details.
     :return: SQLAlchemy connection URL string.
     """
-    return f"mssql+pyodbc://{config['username']}:{config['password']}@{config['server']}/{config['database']}?driver=ODBC+Driver+18+for+SQL+Server"
+    encoded_password = urllib.parse.quote_plus(config["PASSWORD"])
+    return f"mssql+pyodbc://{config['username']}:{encoded_password}@{config['server']}/{config['database']}?driver=ODBC+Driver+{obcd_driver_version}+for+SQL+Server"

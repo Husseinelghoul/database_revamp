@@ -1,4 +1,4 @@
-from config.db_config import load_config, build_connection_url
+from config.db_config import build_connection_url, load_config
 from engine.sync_engine import sync_databases
 from utils.logger import setup_logger
 

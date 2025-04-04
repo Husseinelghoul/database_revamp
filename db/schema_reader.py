@@ -1,10 +1,13 @@
-from sqlalchemy import create_engine, inspect, MetaData, Table, Column, ForeignKey, Identity
-from sqlalchemy.types import String, Integer, Float, Boolean, DateTime
 from concurrent.futures import ThreadPoolExecutor
+
+from sqlalchemy import (Column, ForeignKey, Identity, MetaData, Table,
+                        create_engine, inspect)
+from sqlalchemy.types import Boolean, DateTime, Float, Integer, String
 
 from utils.utils import get_optimal_thread_count_for_io
 
-def read_schema(source_db_url, schema_name="dbo"):
+
+def read_schema(source_db_url, schema_name):
     engine = create_engine(source_db_url)
     inspector = inspect(engine)
     metadata = MetaData()

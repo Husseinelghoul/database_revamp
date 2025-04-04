@@ -1,7 +1,8 @@
 import time
+
+from db.data_migrator import migrate_data
 from db.schema_reader import read_schema
 from db.schema_writer import write_schema
-from db.data_migrator import migrate_data
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -23,6 +24,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
     phase1_start = time.time()
     logger.info("Reading schema from source database...")
     schema, tables = read_schema(source_db_url, source_schema)
+    logger.info("Writing schema to target database...")
     write_schema(target_db_url, tables, target_schema)
     phase1_end = time.time()
     logger.info(f"Phase 1 completed in {phase1_end - phase1_start:.2f} seconds")

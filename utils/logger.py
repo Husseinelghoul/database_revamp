@@ -1,5 +1,6 @@
 import logging
 
+
 def setup_logger(log_file="sync_tool.log"):
     """
     Sets up the logger for the sync tool to log to both console and file.

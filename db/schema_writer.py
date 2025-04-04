@@ -2,7 +2,6 @@ from sqlalchemy import create_engine
 
 from utils.logger import setup_logger
 
-
 logger = setup_logger()
 
 

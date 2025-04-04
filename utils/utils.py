@@ -1,5 +1,7 @@
 import os
+
 import psutil
+
 
 def get_optimal_thread_count_for_io():
     cpu_count = os.cpu_count()
