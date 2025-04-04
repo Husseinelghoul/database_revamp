@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from sqlalchemy import create_engine, inspect, text
 
-from config.constants import batch_size, chunk_size
+from config.constants import BATCH_SIZE, CHUNK_SIZE
 from utils.logger import setup_logger
 from utils.utils import get_optimal_thread_count_for_io
 
@@ -20,7 +20,7 @@ def get_column_count(inspector, table_name, schema):
     columns = inspector.get_columns(table_name, schema=schema)
     return len(columns)
 
-def migrate_table(table_name, source_engine, target_engine, source_schema, target_schema):
+def migrate_table(table_name, source_engine, target_engine, source_schema, target_schema, chunksize=CHUNK_SIZE, batch_size=BATCH_SIZE):
     try:
         logger.info(f"Duplicating data for table: {table_name}")
         
