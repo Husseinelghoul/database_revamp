@@ -4,8 +4,6 @@ from sqlalchemy import (Column, ForeignKey, Identity, MetaData, Table,
                         create_engine, inspect)
 from sqlalchemy.types import Boolean, DateTime, Float, Integer, String
 
-from utils.utils import get_optimal_thread_count_for_io
-
 
 def read_schema(source_db_url, schema_name):
     engine = create_engine(source_db_url)
@@ -52,7 +50,7 @@ def read_schema(source_db_url, schema_name):
 
     table_names = inspector.get_table_names(schema=schema_name)
     
-    with ThreadPoolExecutor(max_workers=get_optimal_thread_count_for_io()) as executor: #TODO edit max worker
+    with ThreadPoolExecutor() as executor: #TODO edit max worker
         results = executor.map(process_table, table_names)
     
     for table_name, table_info, table in results:

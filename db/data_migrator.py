@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, inspect, text
 
 from config.constants import BATCH_SIZE, CHUNK_SIZE
 from utils.logger import setup_logger
-from utils.utils import get_optimal_thread_count_for_io
+
 
 logger = setup_logger()
 
@@ -27,8 +27,8 @@ def migrate_table(table_name, source_engine, target_engine, source_schema, targe
         inspector = inspect(source_engine)
         identity_columns = get_identity_columns(inspector, table_name, source_schema)
         if get_column_count(inspector, table_name, source_schema) > 25:
-            chunksize = chunksize/10
-            batch_size = batch_size/10
+            chunksize = int(chunksize/10)
+            batch_size = int(batch_size/10)
         for chunk in pd.read_sql_table(table_name, source_engine, schema=source_schema, chunksize=chunksize):
             with target_engine.begin() as conn:
                 if identity_columns:
@@ -57,7 +57,7 @@ def migrate_data(source_db_url, target_db_url, schema, source_schema: str, targe
 
     logger.info("Starting Phase 2: Data Duplication...")
 
-    with ThreadPoolExecutor(max_workers=get_optimal_thread_count_for_io()) as executor:
+    with ThreadPoolExecutor() as executor:
         futures = {
             executor.submit(
                 migrate_table, 
