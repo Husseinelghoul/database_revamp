@@ -1,3 +1,4 @@
+from config.constants import APPS_TO_SKIP, PHASES_TO_SKIP
 from config.db_config import build_connection_url, load_config
 from engine.sync_engine import sync_databases
 from utils.logger import setup_logger
@@ -11,7 +12,8 @@ if __name__ == "__main__":
     config = load_config("config.json")
 
     for app in ['pulse','insights']:
-        if app == 'pulse':
+        if app in APPS_TO_SKIP:
+            logger.info(f"Skipping {app}.")
             continue
         # Get source and target database configurations for pulse
         source_config = config[f"{app}_source_db"]
@@ -23,6 +25,6 @@ if __name__ == "__main__":
         source_db_url = build_connection_url(source_config)
         target_db_url = build_connection_url(target_config)
 
-        sync_databases(source_db_url, target_db_url, source_schema, target_schema, program_name=app)
+        sync_databases(source_db_url, target_db_url, source_schema, target_schema, application=app, phases_to_skip=PHASES_TO_SKIP)
     
     logger.info("Closing Program....")

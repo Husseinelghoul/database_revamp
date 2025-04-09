@@ -7,7 +7,6 @@ from sqlalchemy import create_engine, inspect, text
 from config.constants import BATCH_SIZE, CHUNK_SIZE
 from utils.logger import setup_logger
 
-
 logger = setup_logger()
 
 class MigrationError(Exception):
