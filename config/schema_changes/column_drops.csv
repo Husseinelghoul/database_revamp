@@ -29,3 +29,7 @@ insights,entity_key_achievements,next_plan_delim
 insights,entity_key_achievements,start_date
 insights,project_summary,sub_owning_entity
 pulse,project_summary,justification
+pulse,SPA,contract_date
+insights,SPA,contract_date
+pulse,SPA,actual_forecast_milestone_completion
+insights,SPA,actual_forecast_milestone_completion
