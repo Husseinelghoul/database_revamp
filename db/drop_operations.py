@@ -1,17 +1,9 @@
-import pandas as pd
 from sqlalchemy import create_engine, text
 
 from utils.logger import setup_logger
+from utils.utils import load_schema_changes
 
 logger = setup_logger()
-
-def load_schema_changes(file_path):
-    """Load schema changes from CSV file."""
-    try:
-        return pd.read_csv(file_path)
-    except Exception as e:
-        logger.error(f"Failed to load schema changes from {file_path}: {e}")
-        return pd.DataFrame()
 
 def drop_tables(target_db_url, schema_name, application: str, csv_path="config/schema_changes/table_drops.csv"):
     """Drop tables specified in the CSV file."""

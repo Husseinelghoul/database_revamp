@@ -1,7 +1,11 @@
 import os
 
+import pandas as pd
 import psutil
 
+from utils.logger import setup_logger
+
+logger = setup_logger()
 
 def get_optimal_thread_count_for_io():
     cpu_count = os.cpu_count()
@@ -57,3 +61,10 @@ def write_schema_details_to_file(schema, output_file="schema_details.txt"):
         print(f"Error writing schema details to file: {e}")
         raise  # This will abort the process on the first failure
 
+def load_schema_changes(file_path):
+    """Load schema changes from CSV file."""
+    try:
+        return pd.read_csv(file_path)
+    except Exception as e:
+        logger.error(f"Failed to load schema changes from {file_path}: {e}")
+        return pd.DataFrame()
