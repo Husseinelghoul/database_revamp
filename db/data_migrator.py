@@ -21,7 +21,7 @@ def get_column_count(inspector, table_name, schema):
 
 def migrate_table(table_name, source_engine, target_engine, source_schema, target_schema, chunksize=CHUNK_SIZE, batch_size=BATCH_SIZE):
     try:
-        logger.info(f"Duplicating data for table: {table_name}")
+        logger.debug(f"Duplicating data for table: {table_name}")
         
         inspector = inspect(source_engine)
         identity_columns = get_identity_columns(inspector, table_name, source_schema)
@@ -41,7 +41,7 @@ def migrate_table(table_name, source_engine, target_engine, source_schema, targe
                 if identity_columns:
                     conn.execute(text(f"SET IDENTITY_INSERT {target_schema}.{table_name} OFF"))
         
-        logger.info(f"Data duplication completed for table: {table_name}")
+        logger.debug(f"Data duplication completed for table: {table_name}")
     except Exception as e:
         logger.error(f"Failed to duplicate data for table: {table_name}. Error: {e}")
         raise MigrationError(f"Failed to migrate table {table_name}: {str(e)}")
