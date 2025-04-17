@@ -1,28 +1,8 @@
-import os
-
 import pandas as pd
-import psutil
 
 from utils.logger import setup_logger
 
 logger = setup_logger()
-
-def get_optimal_thread_count_for_io():
-    cpu_count = os.cpu_count()
-    memory_gb = psutil.virtual_memory().total / (1024**3)  # Convert to GB
-    
-    # For I/O bound tasks, we can use more threads than CPU cores
-    thread_count = cpu_count * 4  # Start with 4 threads per core
-    
-    # Adjust based on available memory (assuming 0.5GB per thread for I/O tasks)
-    max_threads_memory = int(memory_gb / 0.5)
-    thread_count = min(thread_count, max_threads_memory)
-    
-    # For I/O bound tasks, we can allow a higher maximum
-    thread_count = min(thread_count, 64)
-    
-    return max(8, thread_count)  # Ensure at least 8 threads for I/O tasks
-
 
 def write_schema_details_to_file(schema, output_file="schema_details.txt"):
     """
