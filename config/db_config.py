@@ -21,4 +21,4 @@ def build_connection_url(config):
     :return: SQLAlchemy connection URL string.
     """
     encoded_password = urllib.parse.quote_plus(config["password"])
-    return f"mssql+pyodbc://{config['username']}:{encoded_password}@{config['server']}/{config['database']}?driver=ODBC+Driver+{obcd_driver_version}+for+SQL+Server"
+    return f"mssql+pyodbc://{config['username']}:{encoded_password}@{config['server']}/{config['database']}?driver=ODBC+Driver+{obcd_driver_version}+for+SQL+Server&TrustServerCertificate=yes"
