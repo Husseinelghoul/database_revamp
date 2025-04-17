@@ -70,6 +70,7 @@ project_stage_weightage,Handover,handover
 project_stage_weightage,Overall,overall
 project_stage_weightage,ID,id
 project_status,Design_Stage_weightage,design_stage_weightage
+project_status,Executing Entity,executing_entity
 project_status,Phase_weightage,phase_weightage
 project_status,Consultant,consultant
 project_status,Contractor,contractor
@@ -109,6 +110,7 @@ SPA,Milestone,milestone_description
 SPA,SPA_date,milestone_date
 SPA,Plan_End_Date,baseline_end_date
 SPA,Forecasted_End_Date,forecasted_end_date
+SPA,SPA_Column_1,number_of_units
 SPA,SPA_Column_4,milestone_status
 SPA,SPA_sorting_order,milestone_sorting_order
 user_entity,ID,id
