@@ -40,10 +40,13 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info("Skipping Phase 2: Data Duplication")
     else:
         logger.info("Phase 2: Migrating data to target database...")
-        phase2_start = time.time()
-        migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema)
-        phase2_end = time.time()
-        logger.info(f"Phase 2 completed in {phase2_end - phase2_start:.2f} seconds")
+        if application == "insights":
+            logger.info("Skipping Phase 2 for Insights")
+        else:
+            phase2_start = time.time()
+            migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema)
+            phase2_end = time.time()
+            logger.info(f"Phase 2 completed in {phase2_end - phase2_start:.2f} seconds")
 
     # Phase 3: Table and Column Removal
     if "phase3" in phases_to_skip:
