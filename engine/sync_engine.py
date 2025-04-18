@@ -6,6 +6,7 @@ from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
 from db.schema_reader import read_schema
 from db.schema_writer import write_schema
+from db.sync_master_tables import sync_master_tables
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -33,9 +34,11 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         schema, tables = read_schema(source_db_url, source_schema)
         logger.info("Writing schema to target database...")
         write_schema(target_db_url, tables, target_schema)
+        if application == "insights":
+            sync_master_tables()
+
         phase_end = time.time()
         logger.info(f"Phase 1 completed in {phase_end - phase_start:.2f} seconds")
-
     # Phase 2: Data Duplication
     if "phase2" in phases_to_skip:
         logger.info("Skipping Phase 2: Data Duplication")
@@ -69,9 +72,9 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         phase_start = time.time()
         logger.info(f"Phase 4: Columns and Tables Renaming")
         logger.info(f"Renaming columns")
-        rename_columns(target_db_url, target_schema, application)
+        rename_columns(target_db_url, target_schema)
         logger.info(f"Renaming Tables")
-        rename_tables(target_db_url, target_schema, application)
+        rename_tables(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 4 completed in {phase_end - phase_start:.2f} seconds")
     
