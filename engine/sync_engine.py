@@ -1,5 +1,6 @@
 import time
 
+from db.data_integrity import add_primary_keys, add_unique_constraints
 from db.data_migrator import migrate_data
 from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
@@ -71,6 +72,19 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         rename_columns(target_db_url, target_schema, application)
         logger.info(f"Renaming Tables")
         rename_tables(target_db_url, target_schema, application)
+        phase3_end = time.time()
+        logger.info(f"Phase 4 completed in {phase3_end - phase3_start:.2f} seconds")
+    
+    # Phase 5: Primary keys and unique columns
+    if "phase5" in phases_to_skip:
+        logger.info("Skipping Phase 5: Primary keys and unique columns")
+    else:
+        phase3_start = time.time()
+        logger.info(f"Phase 5: Primary keys and unique columns")
+        logger.info(f"Setting Primary keys")
+        add_primary_keys(target_db_url, target_schema)
+        logger.info(f"Setting Unique Constraints")
+        add_unique_constraints(target_db_url, target_schema)
         phase3_end = time.time()
         logger.info(f"Phase 4 completed in {phase3_end - phase3_start:.2f} seconds")
 
