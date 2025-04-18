@@ -17,7 +17,7 @@ def drop_tables(target_db_url, schema_name, application: str, csv_path="config/s
         for _, row in drops_df.iterrows():
             try:
                 conn.execute(text(f"DROP TABLE IF EXISTS {schema_name}.{row['table_name']}"))
-                logger.info(f"Dropped table {schema_name}.{row['table_name']}")
+                logger.debug(f"Dropped table {schema_name}.{row['table_name']}")
             except Exception as e:
                 logger.error(f"Failed to drop table {schema_name}.{row['table_name']}: {e}")
 
@@ -34,7 +34,7 @@ def drop_columns(target_db_url, schema_name, application: str, csv_path="config/
         for _, row in drops_df.iterrows():
             try:
                 conn.execute(text(f"ALTER TABLE {schema_name}.{row['table_name']} DROP COLUMN IF EXISTS {row['column_name']}"))
-                logger.info(f"Dropped column {row['column_name']} from {schema_name}.{row['table_name']}")
+                logger.debug(f"Dropped column {row['column_name']} from {schema_name}.{row['table_name']}")
             except Exception as e:
                 logger.error(f"Failed to drop column {row['column_name']} from {schema_name}.{row['table_name']}: {e}")
 
