@@ -23,6 +23,8 @@ def add_primary_keys(target_db_url, schema_name, csv_path="config/data_integrity
 def add_unique_constraints(target_db_url, schema_name, csv_path="config/data_integrity_changes/unique_constraints.csv"):
     """Add unique constraints specified in the CSV file."""
     unique_constraints_df = load_schema_changes(csv_path)
+    if unique_constraints_df.empty():
+        logger.info("No unique constraints")
     engine = create_engine(target_db_url)
     with engine.begin() as conn:
         for _, row in unique_constraints_df.iterrows():
