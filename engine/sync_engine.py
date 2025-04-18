@@ -28,13 +28,13 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
     if "phase1" in phases_to_skip:
         logger.info("Skipping Phase 1: Schema Duplication")
     else:
-        phase1_start = time.time()
+        phase_start = time.time()
         logger.info("Phase 1: Reading schema from source database...")
         schema, tables = read_schema(source_db_url, source_schema)
         logger.info("Writing schema to target database...")
         write_schema(target_db_url, tables, target_schema)
-        phase1_end = time.time()
-        logger.info(f"Phase 1 completed in {phase1_end - phase1_start:.2f} seconds")
+        phase_end = time.time()
+        logger.info(f"Phase 1 completed in {phase_end - phase_start:.2f} seconds")
 
     # Phase 2: Data Duplication
     if "phase2" in phases_to_skip:
@@ -44,49 +44,49 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         if application == "insights":
             logger.info("Skipping Phase 2 for Insights")
         else:
-            phase2_start = time.time()
+            phase_start = time.time()
             migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema)
-            phase2_end = time.time()
-            logger.info(f"Phase 2 completed in {phase2_end - phase2_start:.2f} seconds")
+            phase_end = time.time()
+            logger.info(f"Phase 2 completed in {phase_end - phase_start:.2f} seconds")
 
     # Phase 3: Table and Column Removal
     if "phase3" in phases_to_skip:
         logger.info("Skipping Phase 3: Table and Column Removal")
     else:
-        phase3_start = time.time()
+        phase_start = time.time()
         logger.info(f"Phase 3: Dropping tables and columns")
         logger.info(f"Dropping tables")
         drop_tables(target_db_url, target_schema, application)
         logger.info(f"Dropping columns")
         drop_columns(target_db_url, target_schema, application)
-        phase3_end = time.time()
-        logger.info(f"Phase 3 completed in {phase3_end - phase3_start:.2f} seconds")
+        phase_end = time.time()
+        logger.info(f"Phase 3 completed in {phase_end - phase_start:.2f} seconds")
 
     # Phase 4: Columns and Tables Renaming
     if "phase4" in phases_to_skip:
         logger.info("Skipping Phase 4: Columns and Tables Renaming")
     else:
-        phase3_start = time.time()
+        phase_start = time.time()
         logger.info(f"Phase 4: Columns and Tables Renaming")
         logger.info(f"Renaming columns")
         rename_columns(target_db_url, target_schema, application)
         logger.info(f"Renaming Tables")
         rename_tables(target_db_url, target_schema, application)
-        phase3_end = time.time()
-        logger.info(f"Phase 4 completed in {phase3_end - phase3_start:.2f} seconds")
+        phase_end = time.time()
+        logger.info(f"Phase 4 completed in {phase_end - phase_start:.2f} seconds")
     
     # Phase 5: Primary keys and unique columns
     if "phase5" in phases_to_skip:
         logger.info("Skipping Phase 5: Primary keys and unique columns")
     else:
-        phase3_start = time.time()
+        phase_start = time.time()
         logger.info(f"Phase 5: Primary keys and unique columns")
         logger.info(f"Setting Primary keys")
         add_primary_keys(target_db_url, target_schema)
         logger.info(f"Setting Unique Constraints")
         add_unique_constraints(target_db_url, target_schema)
-        phase3_end = time.time()
-        logger.info(f"Phase 4 completed in {phase3_end - phase3_start:.2f} seconds")
+        phase_end = time.time()
+        logger.info(f"Phase 4 completed in {phase_end - phase_start:.2f} seconds")
 
     end_time = time.time()
     logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds for {application}")
