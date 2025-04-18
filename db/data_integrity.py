@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine, text
+
 from utils.logger import setup_logger
 from utils.utils import load_schema_changes
 

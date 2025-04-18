@@ -25,6 +25,7 @@ if __name__ == "__main__":
         source_db_url = build_connection_url(source_config)
         target_db_url = build_connection_url(target_config)
 
-        sync_databases(source_db_url, target_db_url, source_schema, target_schema, application=app, phases_to_skip=PHASES_TO_SKIP)
+        phase_list = [f"phase{num}" for num in PHASES_TO_SKIP]
+        sync_databases(source_db_url, target_db_url, source_schema, target_schema, application=app, phases_to_skip=phase_list)
     
     logger.info("Closing Program....")

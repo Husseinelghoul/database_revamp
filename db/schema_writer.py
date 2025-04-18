@@ -20,8 +20,6 @@ def write_schema(target_db_url, tables, target_schema):
     """
     engine = create_engine(target_db_url)
     
-    logger.info(f"Starting Phase 1: Schema Duplication to schema '{target_schema}'...")
-    
     for table_name, table in tables.items():
         logger.debug(f"Duplicating schema for table: {table_name}")
         try:
@@ -31,6 +29,5 @@ def write_schema(target_db_url, tables, target_schema):
             logger.debug(f"Schema duplication completed for table: {table_name} in schema {target_schema}")
         except Exception as e:
             logger.error(f"Failed to duplicate schema for table: {table_name} in schema {target_schema}. Error: {e}")
-            raise  # This will abort the process on the first failure
+            raise  e# This will abort the process on the first failure
     
-    logger.info(f"Phase 1: Schema Duplication to schema '{target_schema}' completed.")
