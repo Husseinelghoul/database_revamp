@@ -18,15 +18,10 @@ Master_Consultant,ID,id
 Master_Contract_Type,ID,id
 Master_Contractor,ID,id
 Master_Control_Manager,ID,id
-Master_Design_Manager,design_manager_name,design_manager
-Master_Design_Manager,createdAt,created_at
-Master_Design_Manager,updatedAt,updated_at
-Master_Design_Manager,ID,id
 Master_Design_Project_Manager,design_project_manager_name,design_project_manager
 Master_Design_Project_Manager,ID,id
 Master_Design_Project_Owner,design_project_owner_name,design_project_owner
 Master_Design_Project_Owner,ID,id
-Master_Developers,ID,id
 Master_Entity_Category,ID,id
 Master_Executive_Director,ID,id
 Master_KPI,ID,id
@@ -56,7 +51,7 @@ Master_Typology,ID,id
 project_kpi,ID,id
 project_management,time_elapsed_perc,time_elapsed_percentage
 project_management,SPI,spi
-project_management,VAR,var
+project_management,VAR,project_management_var
 project_management,forecast_completion_last_week,forecast_completion_last_period
 project_management,delay_this_week,delay_this_period
 project_management,LTI,lti_ratio
@@ -104,8 +99,6 @@ project_summary,svp_avatar,delivery_project_manager_avatar
 project_summary,EOT_notes,eot_notes
 project_summary,TIP_notes,tip_notes
 project_sustainability,ID,id
-role_template,ID,id
-Sessions,ID,id
 SPA,Milestone,milestone_description
 SPA,SPA_date,milestone_date
 SPA,Plan_End_Date,baseline_end_date
@@ -113,6 +106,3 @@ SPA,Forecasted_End_Date,forecasted_end_date
 SPA,SPA_Column_1,number_of_units
 SPA,SPA_Column_4,milestone_status
 SPA,SPA_sorting_order,milestone_sorting_order
-user_entity,ID,id
-user_project,ID,id
-user_view_permission,ID,id
