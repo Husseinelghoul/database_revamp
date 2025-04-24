@@ -28,7 +28,7 @@ def rename_tables(target_db_url, schema_name, csv_path="config/schema_changes/ta
         for _, row in renames_df.iterrows():
             try:
                 conn.execute(text(f"EXEC sp_rename '{schema_name}.{row['old_table_name']}', '{row['new_table_name']}'"))
-                logger.info(f"Renamed table {schema_name}.{row['old_table_name']} to {schema_name}.{row['new_table_name']}")
+                logger.debug(f"Renamed table {schema_name}.{row['old_table_name']} to {schema_name}.{row['new_table_name']}")
             except Exception as e:
                 logger.error(f"Failed to rename table {schema_name}.{row['old_table_name']} to {schema_name}.{row['new_table_name']}: {e}")
                 raise e

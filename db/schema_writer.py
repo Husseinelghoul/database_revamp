@@ -1,6 +1,9 @@
-from sqlalchemy import create_engine, inspect, MetaData, Table, Column, ForeignKey, Integer, String, Float, Boolean, DateTime, BigInteger, Date, Identity
-from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from concurrent.futures import ThreadPoolExecutor
+
+from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Float,
+                        ForeignKey, Identity, Integer, MetaData, String, Table,
+                        create_engine, inspect)
+from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 
 from utils.logger import setup_logger
 
