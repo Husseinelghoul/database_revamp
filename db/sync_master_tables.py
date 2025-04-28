@@ -1,7 +1,6 @@
 
 from config.db_config import build_connection_url, load_config
-from db.schema_reader import read_schema
-from db.schema_writer import write_schema
+from db.schema_writer import read_schema, write_schema
 from utils.logger import setup_logger
 
 logger = setup_logger()

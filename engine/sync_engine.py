@@ -1,11 +1,11 @@
 import time
 
-from db.data_integrity import add_primary_keys, add_unique_constraints
+from db.data_integrity import (add_foreign_keys, add_primary_keys,
+                               add_unique_constraints, drop_orphaned_items)
 from db.data_migrator import migrate_data
 from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
-from db.schema_reader import read_schema
-from db.schema_writer import write_schema
+from db.schema_writer import read_schema, write_schema
 from db.sync_master_tables import sync_master_tables
 from utils.logger import setup_logger
 
@@ -44,7 +44,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info("Skipping Phase 2: Data Duplication")
     else:
         logger.info("Phase 2: Migrating data to target database...")
-        if application == "insights":
+        if application == "blaaa":
             logger.info("Skipping Phase 2 for Insights")
         else:
             phase_start = time.time()
@@ -78,18 +78,16 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         phase_end = time.time()
         logger.info(f"Phase 4 completed in {phase_end - phase_start:.2f} seconds")
     
-    # Phase 5: Primary keys and unique columns
+    # Phase 5: Primary keys
     if "phase5" in phases_to_skip:
-        logger.info("Skipping Phase 5: Primary keys and unique columns")
+        logger.info("Skipping Phase 5: Primary keys")
     else:
         phase_start = time.time()
-        logger.info(f"Phase 5: Primary keys and unique columns")
+        logger.info(f"Phase 5: Primary keys")
         logger.info(f"Setting Primary keys")
         add_primary_keys(target_db_url, target_schema)
-        logger.info(f"Setting Unique Constraints")
-        add_unique_constraints(target_db_url, target_schema)
         phase_end = time.time()
-        logger.info(f"Phase 4 completed in {phase_end - phase_start:.2f} seconds")
+        logger.info(f"Phase 5 completed in {phase_end - phase_start:.2f} seconds")
 
     end_time = time.time()
     logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds for {application}")

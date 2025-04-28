@@ -90,7 +90,7 @@ def write_schema(target_db_url, tables, target_schema):
     for table_name, table in tables.items():
         try:
             table.schema = target_schema
-            table.create(bind=engine, checkfirst=False)
+            table.create(bind=engine, checkfirst=True)
             logger.debug(f"Schema duplication completed for table: {table_name} in schema {target_schema}")
         except Exception as e:
             logger.error(f"Failed to duplicate schema for table: {table_name} in schema {target_schema}. Error: {e}")
