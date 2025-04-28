@@ -22,6 +22,7 @@ pulse,SPA,SPA_Column_3
 pulse,SPA,SPA_Column_5
 pulse,SPA,SPA_Column_6
 pulse,SPA,spa_variance
+pulse,project_summary,design_project_owner
 insights,project_management,bua
 insights,project_management,budget
 insights,project_management,gfa
@@ -49,3 +50,4 @@ insights,entity_key_achievements,key_achievments_delim
 insights,entity_key_achievements,next_plan_delim
 insights,entity_key_achievements,start_date
 insights,project_summary,sub_owning_entity
+insights,project_summary,design_project_owner

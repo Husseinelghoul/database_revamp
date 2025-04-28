@@ -16,10 +16,8 @@ master_consultant,id
 master_contract_type,id
 master_contractor,id
 master_control_manager,id
-master_design_manager,id
 master_design_project_manager,id
 master_design_project_owner,id
-master_developers,id
 master_director,id
 master_entity_category,id
 master_executive_director,id
@@ -34,7 +32,6 @@ master_pmc_consultant,id
 master_portfolio_manager,id
 master_pricing_type,id
 master_procurement_manager,id
-master_project_category,id
 master_project_classification,id
 master_project_name,id
 master_project_phase,id

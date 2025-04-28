@@ -44,8 +44,6 @@ Master_Rating,ID,id
 Master_Risk_Category,ID,id
 Master_Risk_Discipline,ID,id
 Master_Risk_Owner,ID,id
-Master_Sub_Owning_Entity,ID,id
-Master_Sub_Status,ID,id
 Master_SVP,svp,delivery_project_manager
 Master_Typology,ID,id
 project_kpi,ID,id
@@ -64,6 +62,7 @@ project_stage_weightage,Construction,construction
 project_stage_weightage,Handover,handover
 project_stage_weightage,Overall,overall
 project_stage_weightage,ID,id
+project_status,SPA_date,spa_date
 project_status,Design_Stage_weightage,design_stage_weightage
 project_status,Executing Entity,executing_entity
 project_status,Phase_weightage,phase_weightage
