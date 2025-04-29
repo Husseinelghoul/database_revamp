@@ -1,7 +1,8 @@
 import time
 
-from db.data_integrity import (add_foreign_keys, add_primary_keys,
-                               add_unique_constraints, drop_orphaned_items)
+from db.data_integrity import (add_primary_keys,
+                               implement_many_to_many_relations,
+                               implement_one_to_many_relations)
 from db.data_migrator import migrate_data
 from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
@@ -88,6 +89,21 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         add_primary_keys(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 5 completed in {phase_end - phase_start:.2f} seconds")
+
+    # Phase 6: Add Foreing Keys for Master Tables and Identify Orphaned items
+    if "phase6" in phases_to_skip:
+        logger.info("Skipping Phase 6: Add Foreing Keys for Master Tables and Identify Orphaned items")
+    else:
+        phase_start = time.time()
+        logger.info(f"Phase 6: Add Foreing Keys for Master Tables and Identify Orphaned items")
+        logger.info(f"Implementing one to many relations")
+        implement_one_to_many_relations(target_db_url, target_schema)
+        logger.info(f"Implementing many to many relations")
+        implement_many_to_many_relations(target_db_url, target_schema)
+        logger.info(f"Dropping unused columns")
+        drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/unused_columns.csv")
+        phase_end = time.time()
+        logger.info(f"Phase 6 completed in {phase_end - phase_start:.2f} seconds")
 
     end_time = time.time()
     logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds for {application}")

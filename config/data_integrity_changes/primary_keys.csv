@@ -45,7 +45,5 @@ master_risk_category,id
 master_risk_discipline,id
 master_risk_owner,id
 master_sub_location,id
-master_sub_owning_entity,id
-master_sub_status,id
 master_delivery_project_manager,id
 master_typology,id

@@ -24,7 +24,8 @@ def drop_tables(target_db_url, schema_name, application: str, csv_path="config/s
 def drop_columns(target_db_url, schema_name, application: str, csv_path="config/schema_changes/column_drops.csv"):
     """Drop columns specified in the CSV file."""
     drops_df = load_schema_changes(csv_path)
-    drops_df = drops_df[drops_df["database"] == application]
+    if "database" in drops_df.columns:
+        drops_df = drops_df[drops_df["database"] == application]
     if drops_df.empty:
         logger.info(f"No columns to drop for {application}.")
         return
