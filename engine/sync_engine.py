@@ -90,20 +90,33 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         phase_end = time.time()
         logger.info(f"Phase 5 completed in {phase_end - phase_start:.2f} seconds")
 
-    # Phase 6: Add Foreing Keys for Master Tables and Identify Orphaned items
+    # Phase 6: Add Foreing Keys for Master Tables and Identify Orphaned items - part a
     if "phase6" in phases_to_skip:
-        logger.info("Skipping Phase 6: Add Foreing Keys for Master Tables and Identify Orphaned items")
+        logger.info("Skipping Phase 6: Add Foreing Keys for Master Tables and Identify Orphaned items - part a")
     else:
         phase_start = time.time()
-        logger.info(f"Phase 6: Add Foreing Keys for Master Tables and Identify Orphaned items")
-        logger.info(f"Implementing one to many relations")
-        implement_one_to_many_relations(target_db_url, target_schema)
-        logger.info(f"Implementing many to many relations")
-        implement_many_to_many_relations(target_db_url, target_schema)
-        logger.info(f"Dropping unused columns")
-        drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/unused_columns.csv")
+        logger.info(f"Add Foreing Keys for Master Tables and Identify Orphaned items - part a")
+        logger.info(f"Implementing one to many relations - part a")
+        implement_one_to_many_relations(target_db_url, target_schema,csv_path="config/data_integrity_changes/phase6_one_to_many_relations.csv")
+        logger.info(f"Implementing many to many relations - part a")
+        implement_many_to_many_relations(target_db_url, target_schema, csv_path="config/data_integrity_changes/phase6_many_to_many_relations.csv")
+        logger.info(f"Dropping unused columns - part a")
+        drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/phase6_unused_columns.csv")
         phase_end = time.time()
         logger.info(f"Phase 6 completed in {phase_end - phase_start:.2f} seconds")
+
+    # Phase 7: Add Foreing Keys for Master Tables and Identify Orphaned items - part b
+    if "phase7" in phases_to_skip:
+        logger.info("Skipping Phase 7: Add Foreing Keys for Master Tables and Identify Orphaned items - part b")
+    else:
+        phase_start = time.time()
+        logger.info(f"Add Foreing Keys for Master Tables and Identify Orphaned items - part b")
+        logger.info(f"Implementing one to many relations - part b")
+        implement_one_to_many_relations(target_db_url, target_schema,csv_path="config/data_integrity_changes/phase7_one_to_many_relations.csv")
+        logger.info(f"Dropping unused columns - part b")
+        drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/phase7_unused_columns.csv")
+        phase_end = time.time()
+        logger.info(f"Phase 7 completed in {phase_end - phase_start:.2f} seconds")
 
     end_time = time.time()
     logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds for {application}")
