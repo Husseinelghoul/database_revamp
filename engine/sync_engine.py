@@ -34,22 +34,25 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info("Phase 1: Reading schema from source database...")
         schema, tables = read_schema(source_db_url, source_schema)
         logger.info("Writing schema to target database...")
-        write_schema(target_db_url, tables, target_schema)
+        filtered_tables = {key: value for key, value in tables.items() if 'master' not in key.lower()}
+        write_schema(target_db_url, filtered_tables, target_schema)
         if application == "insights":
             sync_master_tables()
-
         phase_end = time.time()
         logger.info(f"Phase 1 completed in {phase_end - phase_start:.2f} seconds")
+
     # Phase 2: Data Duplication
     if "phase2" in phases_to_skip:
         logger.info("Skipping Phase 2: Data Duplication")
     else:
         logger.info("Phase 2: Migrating data to target database...")
-        if application == "blaaa":
+        if application == "blaaa": #TODO: fixme
             logger.info("Skipping Phase 2 for Insights")
         else:
             phase_start = time.time()
-            migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema)
+            if application == "insights":
+                filtered_schema = {key: value for key, value in schema.items() if "master" not in key.lower()}
+            migrate_data(source_db_url, target_db_url, filtered_schema, source_schema, target_schema)
             phase_end = time.time()
             logger.info(f"Phase 2 completed in {phase_end - phase_start:.2f} seconds")
 

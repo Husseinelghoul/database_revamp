@@ -54,8 +54,9 @@ def migrate_data(source_db_url, target_db_url, schema, source_schema: str, targe
     source_engine = create_engine(source_db_url)
     target_engine = create_engine(target_db_url)
 
-    logger.info("Starting Phase 2: Data Duplication...")
-
+    # removing sessions table
+    if "Sessions" in schema.keys():
+        del schema["Sessions"]
     with ThreadPoolExecutor() as executor:
         futures = {
             executor.submit(
@@ -69,7 +70,6 @@ def migrate_data(source_db_url, target_db_url, schema, source_schema: str, targe
         }
         
         for future in as_completed(futures):
-            table_name = futures[future]
             try:
                 future.result()
             except MigrationError as e:
@@ -77,5 +77,3 @@ def migrate_data(source_db_url, target_db_url, schema, source_schema: str, targe
                 for f in futures:
                     f.cancel()
                 sys.exit(1)
-
-    logger.info("Phase 2: Data Duplication completed.")
