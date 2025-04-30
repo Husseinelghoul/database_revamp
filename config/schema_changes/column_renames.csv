@@ -17,6 +17,7 @@ key_risk,ID,id
 Master_Consultant,ID,id
 Master_Contract_Type,ID,id
 Master_Contractor,ID,id
+master_contractor,worker_welfare_complacence_percentage,worker_welfare_compliance_percentage
 Master_Control_Manager,ID,id
 Master_Design_Project_Manager,design_project_manager_name,design_project_manager
 Master_Design_Project_Manager,ID,id
@@ -71,7 +72,7 @@ project_status,Contractor,contractor
 project_status,revised_plan_perc,revised_plan_percentage
 project_status,actual_plan_perc,actual_plan_percentage
 project_status,PMC_Consultant,pmc_consultant
-project_status,actual_l_week,actual_progress_pecentage_of_last_week
+project_status,actual_l_week,actual_progress_percentage_of_last_week
 project_status,plan_l_week,actual_progress_percentage_for_last_week
 project_status,svp,delivery_project_manager
 project_status,svp_avatar,delivery_project_manager_avatar
