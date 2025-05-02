@@ -52,7 +52,8 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
             phase_start = time.time()
             if application == "insights":
                 filtered_schema = {key: value for key, value in schema.items() if "master" not in key.lower()}
-            migrate_data(source_db_url, target_db_url, filtered_schema, source_schema, target_schema)
+                schema = filtered_schema
+            migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema)
             phase_end = time.time()
             logger.info(f"Phase 2 completed in {phase_end - phase_start:.2f} seconds")
 
