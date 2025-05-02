@@ -13,6 +13,7 @@ pulse,Master_Design_Manager
 pulse,Master_Project_Category
 pulse,Master_Sub_Owning_Entity
 pulse,Master_Sub_Status
+pulse,Master_Design_Project_Owner
 insights,entity_category
 insights,project_pricing_type
 insights,INPUT_MONTHLY_PERFORMANCE_IMPORT

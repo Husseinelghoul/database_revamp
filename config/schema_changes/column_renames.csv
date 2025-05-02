@@ -21,8 +21,6 @@ master_contractor,worker_welfare_complacence_percentage,worker_welfare_complianc
 Master_Control_Manager,ID,id
 Master_Design_Project_Manager,design_project_manager_name,design_project_manager
 Master_Design_Project_Manager,ID,id
-Master_Design_Project_Owner,design_project_owner_name,design_project_owner
-Master_Design_Project_Owner,ID,id
 Master_Entity_Category,ID,id
 Master_Executive_Director,ID,id
 Master_KPI,ID,id
@@ -76,6 +74,7 @@ project_status,actual_l_week,actual_progress_percentage_of_last_week
 project_status,plan_l_week,actual_progress_percentage_for_last_week
 project_status,svp,delivery_project_manager
 project_status,svp_avatar,delivery_project_manager_avatar
+project_summary,design_project_owner,design_manager
 project_summary,Sub_location,sub_location
 project_summary,dof_no,dof_number
 project_summary,manhour,man_hour

@@ -17,7 +17,6 @@ master_contract_type,id
 master_contractor,id
 master_control_manager,id
 master_design_project_manager,id
-master_design_project_owner,id
 master_director,id
 master_entity_category,id
 master_executive_director,id
