@@ -34,8 +34,10 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info("Phase 1: Reading schema from source database...")
         schema, tables = read_schema(source_db_url, source_schema)
         logger.info("Writing schema to target database...")
-        filtered_tables = {key: value for key, value in tables.items() if 'master' not in key.lower()}
-        write_schema(target_db_url, filtered_tables, target_schema)
+        if application == "insights":
+            filtered_tables = {key: value for key, value in tables.items() if 'master' not in key.lower()}
+            tables = filtered_tables
+        write_schema(target_db_url, tables, target_schema)
         if application == "insights":
             sync_master_tables()
         phase_end = time.time()
@@ -51,6 +53,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         else:
             phase_start = time.time()
             if application == "insights":
+                print("FILTERING"*100)
                 filtered_schema = {key: value for key, value in schema.items() if "master" not in key.lower()}
                 schema = filtered_schema
             migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema)
