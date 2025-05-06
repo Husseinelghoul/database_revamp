@@ -16,7 +16,7 @@ master_consultant,id
 master_contract_type,id
 master_contractor,id
 master_control_manager,id
-master_design_project_manager,id
+master_design_manager,id
 master_director,id
 master_entity_category,id
 master_executive_director,id
@@ -46,3 +46,4 @@ master_risk_owner,id
 master_sub_location,id
 master_delivery_project_manager,id
 master_typology,id
+master_design_executive_director,id

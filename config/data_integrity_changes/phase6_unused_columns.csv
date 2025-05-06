@@ -23,7 +23,7 @@ project_status,delivery_project_manager
 project_summary,location
 project_summary,sub_location
 project_summary,executive_director
-project_summary,design_project_manager
+project_summary,design_executive_director
 project_summary,delivery_project_manager
 project_summary,next_steps_to_advance_progress
 project_summary,non_recoverable_delay_justification

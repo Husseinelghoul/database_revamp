@@ -13,7 +13,6 @@ pulse,Master_Design_Manager
 pulse,Master_Project_Category
 pulse,Master_Sub_Owning_Entity
 pulse,Master_Sub_Status
-pulse,Master_Design_Project_Owner
 insights,entity_category
 insights,project_pricing_type
 insights,INPUT_MONTHLY_PERFORMANCE_IMPORT
@@ -28,3 +27,4 @@ insights,file_load_log
 insights,Project_Summary_22_Feb
 insights,Project_Summary_22Feb
 insights,project_to_be_completed_in
+insights,Master_Design_Manager
