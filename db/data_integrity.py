@@ -145,34 +145,13 @@ def add_primary_keys(target_db_url, schema_name, csv_path="config/data_integrity
                 logger.error(f"Failed to add primary key on column {column_name} for table {schema_name}.{table_name}: {e}")
                 raise e
 
-def ensure_unknown_record_exists(conn, schema_name: str, table_name: str, id_column: str, name_column: str):
-    """
-    Ensure that an "Unknown" record with ID=-1 exists in the reference table.
-    This allows us to maintain referential integrity for unmatched references.
-    """
-    check_query = f"""
-    SELECT 1 FROM {schema_name}.{table_name} WHERE {id_column} = -1
-    """
-    exists = conn.execute(text(check_query)).fetchone()
-    
-    if not exists:
-        insert_query = f"""
-        SET IDENTITY_INSERT {schema_name}.{table_name} ON;
-        INSERT INTO {schema_name}.{table_name} ({id_column}, {name_column})
-        VALUES (-1, NULL);
-        SET IDENTITY_INSERT {schema_name}.{table_name} OFF;
-        """
-        conn.execute(text(insert_query))
-        logger.debug(f"Added 'Unknown' record with ID=-1 to {schema_name}.{table_name}")
-
 def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/one_to_many_relations.csv"):
     """
     Implement one-to-many relations based on CSV configuration.
     This function:
-    1. Ensures "Unknown" record with ID=-1 exists in referenced tables
-    2. Creates a new column with the referenced IDs
-    3. Updates with correct IDs where references are found, -1 where not found
-    4. Adds foreign key constraint
+    1. Creates a new column with the referenced IDs
+    2. Updates with correct IDs where references are found, NULL where not found
+    3. Adds foreign key constraint with appropriate deletion action
     
     CSV columns:
     - table_name: The table to modify
@@ -185,6 +164,22 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
     relations_df = load_schema_changes(csv_path)
     engine = create_engine(target_db_url)
     
+    # Track tables with foreign keys to handle multiple references to the same table
+    table_references = {}
+    
+    # First pass: collect all table relationships
+    for _, row in relations_df.iterrows():
+        table_name = row["table_name"]
+        referenced_table = row["referenced_table"]
+        
+        if table_name not in table_references:
+            table_references[table_name] = {}
+        
+        if referenced_table not in table_references[table_name]:
+            table_references[table_name][referenced_table] = 0
+            
+        table_references[table_name][referenced_table] += 1
+    
     with engine.begin() as conn:
         for _, row in relations_df.iterrows():
             table_name = row["table_name"]
@@ -194,19 +189,17 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
             referenced_column = row["referenced_column"]
             lookup_column = row["lookup_column"]
             try:
-                # Step 1: Ensure "Unknown" record exists in referenced table
-                ensure_unknown_record_exists(conn, schema_name, referenced_table, referenced_column, lookup_column)
-                
-                # Step 2: Add the new column for the foreign key
+                # Step 1: Add the new column for the foreign key (allowing NULL)
                 conn.execute(text(
                     f"ALTER TABLE {schema_name}.{table_name} "
-                    f"ADD {replaced_with} INT NOT NULL DEFAULT -1"
+                    f"ADD {replaced_with} INT NULL"
                 ))
                 logger.debug(f"Added column {replaced_with} to {schema_name}.{table_name}")
-                # Step 3: Update the new column with referenced IDs
+                
+                # Step 2: Update the new column with referenced IDs
                 update_query = f"""
                 UPDATE src
-                SET {replaced_with} = COALESCE(ref.{referenced_column}, -1)
+                SET {replaced_with} = ref.{referenced_column}
                 FROM {schema_name}.{table_name} src
                 LEFT JOIN {schema_name}.{referenced_table} ref
                     ON src.{column_name} = ref.{lookup_column}
@@ -217,32 +210,24 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
                 unmatched_query = f"""
                 SELECT COUNT(*) as unmatched_count
                 FROM {schema_name}.{table_name}
-                WHERE {replaced_with} = -1
+                WHERE {replaced_with} IS NULL
                 """
                 unmatched_count = conn.execute(text(unmatched_query)).scalar()
                 if unmatched_count:
                     logger.debug(f"Found {unmatched_count} unmatched references in {schema_name}.{table_name}.{column_name}")
                 
-                # Save unmatched values for later investigation
-                # if unmatched_count > 0:
-                #     unmatched_values_query = f"""
-                #     SELECT {column_name}
-                #     FROM {schema_name}.{table_name}
-                #     WHERE {replaced_with} = -1
-                #     GROUP BY {column_name}
-                #     """
-                #     unmatched_values = pd.read_sql(unmatched_values_query, conn)
-                #     unmatched_values.to_csv(f"unmatched_values_one_to_many_{table_name}.csv", index=False)
-                #     logger.debug(f"Unmatched values in {schema_name}.{table_name}.{column_name}: {unmatched_values[column_name].tolist()}")
+                # Step 3: Add foreign key constraint with appropriate deletion action
+                # Use NO ACTION for multiple references to the same table to avoid cascade cycles
+                delete_action = "NO ACTION" if table_references[table_name].get(referenced_table, 0) > 1 else "SET NULL"
                 
-                # Step 4: Add foreign key constraint
                 add_fk_query = f"""
                 ALTER TABLE {schema_name}.{table_name}
                 ADD CONSTRAINT FK_{table_name}_{replaced_with}
                 FOREIGN KEY ({replaced_with}) REFERENCES {schema_name}.{referenced_table}({referenced_column})
+                ON DELETE {delete_action}
                 """
                 conn.execute(text(add_fk_query))
-                logger.debug(f"Added foreign key constraint on {replaced_with} in {schema_name}.{table_name}")
+                logger.debug(f"Added foreign key constraint on {replaced_with} in {schema_name}.{table_name} with ON DELETE {delete_action}")
                 
             except Exception as e:
                 logger.error(f"Failed to implement one-to-many relation for {schema_name}.{table_name}.{column_name}: {e}")
@@ -252,10 +237,9 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
     """
     Implement many-to-many relations based on CSV configuration.
     This function:
-    1. Ensures "Unknown" record exists in lookup tables
-    2. Creates associative tables if they don't exist
-    3. Populates the associative tables with correct relationships
-    4. Logs unmatched values for later investigation
+    1. Creates associative tables if they don't exist
+    2. Populates the associative tables with correct relationships
+    3. Logs unmatched values for later investigation
     
     CSV columns:
     - source_table: The table containing the semi-colon separated values
@@ -283,10 +267,9 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             assoc_source_column = row["assoc_source_column"]
             assoc_lookup_column = row["assoc_lookup_column"]
             try:
-                # Step 1: Ensure "Unknown" record exists in lookup table
-                ensure_unknown_record_exists(conn, schema_name, lookup_table, lookup_id_column, lookup_name_column)
-                
-                # Step 2: Create associative table if it doesn't exist
+                # Create associative table if it doesn't exist
+                # Note: In many-to-many relationships, we typically don't allow NULLs
+                # in the associative table - we simply don't create the relationship
                 create_table_query = f"""
                 IF OBJECT_ID('{schema_name}.{associative_table}', 'U') IS NULL
                 BEGIN
@@ -306,7 +289,7 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                 conn.execute(text(create_table_query))
                 logger.debug(f"Created associative table {schema_name}.{associative_table} if it didn't exist")
                 
-                # Step 3: Get all source rows with their multi-values
+                # Get all source rows with their multi-values
                 source_data_query = f"""
                 SELECT {source_id_column}, {source_multi_column}
                 FROM {schema_name}.{source_table}
@@ -314,7 +297,7 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                 """
                 source_data = pd.read_sql(source_data_query, conn)
                 
-                # Step 4: Get all lookup values for mapping
+                # Get all lookup values for mapping
                 lookup_data_query = f"""
                 SELECT {lookup_id_column}, {lookup_name_column}
                 FROM {schema_name}.{lookup_table}
@@ -325,7 +308,7 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                 # Track unmatched values for logging
                 unmatched_values = []
                 
-                # Step 5: For each source row, create entries in the associative table
+                # For each source row, create entries in the associative table
                 for _, src_row in source_data.iterrows():
                     source_id = src_row[source_id_column]
                     values_str = src_row[source_multi_column]
@@ -355,21 +338,7 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                                 else:
                                     # Track unmatched values for later investigation
                                     unmatched_values.append(value)
-                                    
-                                    # Add a relationship to the "Unknown" record
-                                    check_query = f"""
-                                    SELECT 1 FROM {schema_name}.{associative_table}
-                                    WHERE {assoc_source_column} = {source_id} AND {assoc_lookup_column} = -1
-                                    """
-                                    exists = conn.execute(text(check_query)).fetchone()
-                                    
-                                    if not exists:
-                                        insert_query = f"""
-                                        INSERT INTO {schema_name}.{associative_table} ({assoc_source_column}, {assoc_lookup_column})
-                                        VALUES ({source_id}, -1)
-                                        """
-                                        conn.execute(text(insert_query))
-                                        logger.debug(f"Added relationship to Unknown in {associative_table}: {source_id} -> -1")
+                                    logger.debug(f"Skipping unmatched value '{value}' for {source_id} in {source_table}.{source_multi_column}")
                 
                 # Log unmatched values
                 if unmatched_values:
