@@ -1,11 +1,13 @@
 import time
 
+from db.data_insertion import populate_master_tables
 from db.data_integrity import (add_primary_keys,
                                implement_many_to_many_relations,
                                implement_one_to_many_relations)
 from db.data_migrator import migrate_data
 from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
+from db.schema_changes import split_columns
 from db.schema_writer import read_schema, write_schema
 from db.sync_master_tables import sync_master_tables
 from utils.logger import setup_logger
@@ -53,7 +55,6 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         else:
             phase_start = time.time()
             if application == "insights":
-                print("FILTERING"*100)
                 filtered_schema = {key: value for key, value in schema.items() if "master" not in key.lower()}
                 schema = filtered_schema
             migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema)
@@ -96,31 +97,31 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         add_primary_keys(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 5 completed in {phase_end - phase_start:.2f} seconds")
-
-    # Phase 6: Add Foreing Keys for Master Tables and Identify Orphaned items - part a
+    
+    # Phase 6: Splitting columns
     if "phase6" in phases_to_skip:
-        logger.info("Skipping Phase 6: Add Foreing Keys for Master Tables and Identify Orphaned items - part a")
+        logger.info("Skipping Phase 6: Splitting Columns")
     else:
-        phase_start = time.time()
-        logger.info(f"Add Foreing Keys for Master Tables and Identify Orphaned items - part a")
-        logger.info(f"Implementing one to many relations - part a")
-        implement_one_to_many_relations(target_db_url, target_schema,csv_path="config/data_integrity_changes/phase6_one_to_many_relations.csv")
-        logger.info(f"Implementing many to many relations - part a")
-        implement_many_to_many_relations(target_db_url, target_schema, csv_path="config/data_integrity_changes/phase6_many_to_many_relations.csv")
-        logger.info(f"Dropping unused columns - part a")
-        drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/phase6_unused_columns.csv")
+        phase_start
+        phase_end = time.time()
+        logger.info("Phase 6: Splitting Columns")
+        split_columns(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 6 completed in {phase_end - phase_start:.2f} seconds")
 
-    # Phase 7: Add Foreing Keys for Master Tables and Identify Orphaned items - part b
+    # Phase 7: Add Foreing Keys for Master Tables
     if "phase7" in phases_to_skip:
-        logger.info("Skipping Phase 7: Add Foreing Keys for Master Tables and Identify Orphaned items - part b")
+        logger.info("Skipping Phase 7: Add Foreing Keys for Master Tables")
     else:
         phase_start = time.time()
-        logger.info(f"Add Foreing Keys for Master Tables and Identify Orphaned items - part b")
-        logger.info(f"Implementing one to many relations - part b")
+        logger.info(f"Phase 7: Add Foreing Keys for Master Tables")
+        logger.info(f"Populating master tables - 7a")
+        populate_master_tables(target_db_url, target_schema)
+        logger.info(f"Implementing one to many relations - 7b")
         implement_one_to_many_relations(target_db_url, target_schema,csv_path="config/data_integrity_changes/phase7_one_to_many_relations.csv")
-        logger.info(f"Dropping unused columns - part b")
+        logger.info(f"Implementing many to many relations - 7c")
+        implement_many_to_many_relations(target_db_url, target_schema, csv_path="config/data_integrity_changes/phase7_many_to_many_relations.csv")
+        logger.info(f"Dropping unused columns - 7d")
         drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/phase7_unused_columns.csv")
         phase_end = time.time()
         logger.info(f"Phase 7 completed in {phase_end - phase_start:.2f} seconds")
