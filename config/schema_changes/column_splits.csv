@@ -1,0 +1,2 @@
+table_name,source_column,new_column
+contract_vo_status,contractor_name,consultant_name
