@@ -1,0 +1,50 @@
+master_contract_type,master_rating,master_risk_category,master_risk_discipline,master_risk_owner,master_project_stage_status,master_project_sub_stage,master_project_phase_category,master_project_classification,master_entity_category,master_pricing_type,master_reason_for_delay
+Supervision,Low,empty,empty,empty,Initiation,Masterplan Validation,Ambulance Point,Bid-Build,Aldar Investment,Fee Based,Delay in Initiation (Requirements Gathering & RFP Preparation)
+Consultantcy,Medium,,,,LDC Procurement,Preconcept Masterplan,Bridge,Design,Government,Fixed Price,Incomplete Project Transfer Information (Project Brief/Design/Tender Documentation)
+Construction,High,,,,Design,Design Validation,Building,Design & Build,Aldar Development,,Outstanding Project Budget Transfer
+,Closed,,,,Contractor Procurement,Data Collection & Concept design,Civil Defence,Design-Bid-Build,,,Outstanding Project Contract Novation
+,,,,,Construction,D&B Tender Documents (TD),Clinics,Development Agreement,,,Change of Scope (Change to or Additional Requirements)
+,,,,,DLP and Project Closeout,Data Collection,Clubhouse,High Priority,,,Incorrect Initial Project Planning/Estimation
+,,,,,,Planning approval: TIS,Community Club,,,,Project Suspended/Put 'On Hold'
+,,,,,,Planning approval: DMP,Community Facilities,,,,Delay in Procurement (Extension of Tender Process)
+,,,,,,Tender Documents & Authority Approvals,Cycle Track,,,,Delay in Procurement (Weak Market Interest)
+,,,,,,Schematic Design,Enabling Works,,,,Delay in Procurement (Proposals Exceed Budget)
+,,,,,,Detailed Master Plan,Gate House,,,,Delay in Procurement (Internal Approval/Sign-Off Process)
+,,,,,,Overall Design,Golf Course,,,,Delay in Site Investigation/Geotechnical
+,,,,,,Authority Approvals,Hospital,,,,Poor Consultant Performance (Delay in Obtaining Required Permits & Approvals)
+,,,,,,Tender Documents,Infra & Villa,,,,Poor Consultant Performance (Delay in Issue of Design)
+,,,,,,Preliminary Design,Infrastructure,,,,Delay in Design Acceptance/Sign-Off
+,,,,,,Detailed Design,Jame'e Mosque,,,,Delay in Authority Approvals
+,,,,,,Concept design,Landscape,,,,Delay in NOCs (Utility)
+,,,,,,Concept Masterplan,Main Works,,,,Delay in NOCs (Government/Authority)
+,,,,,,Planning approval: CMP,Majlis,,,,Commercial Issue (e.g. Delay in Issuing/Approval of Variation)
+,,,,,,Design Re-validation,Master Planning,,,,Unforeseen Site Conditions
+,,,,,,RFP,Mobility,,,,Unforeseen Utility/Interface Issue
+,,,,,,Authority Approvals & Tender Documents,Mosques,,,,Unforeseen Technical/Design Issue
+,,,,,,Design Revalidation,Multi CF,,,,Poor Contractor Performance (Site Supervision/Management)
+,,,,,,Design revalidation & Authority Approvals,Multipurpose Hall,,,,Poor Contractor Performance (Insufficient Resource)
+,,,,,,Concept Design Revalidation,Overall,,,,Poor Contractor Performance (Delay in Material Delivery)
+,,,,,,Detailed design Revalidation,Parking,,,,Objections from Residents/Local Stakeholders
+,,,,,,IFC Drawings Preparation,Parks,,,,Objections from Local Authorities
+,,,,,,NOC Renewal,Pedestrian Bridges,,,,Delays in Snagging Process
+,,,,,,Package-1 Detailed Design,Phase,,,,Delay in Handover/End-User Acceptance of Asset
+,,,,,,Package-2 Detailed Design,Plots,,,,Multiple Concurrent Delays of Significant Impact
+,,,,,,Package-3 Detailed Design,Police Station,,,,Project Under Transfer
+,,,,,,Package-4 Detailed Design,Retails,,,,Insufficient planning information or Uncertainty of the Right of Way (USDM or retrofit)
+,,,,,,Autority Approvals,Roads,,,,Delay in Master plan approval by DMT/ Authorities
+,,,,,,"Traffic Study Update, & Design Validation & Gap Analysis Report",Sample Room,,,,There is no actual delay in the project and CPDS reflects Musanada dates not Aldar
+,,,,,,Concept Design (Additional Scope Medical Planning),Schools,,,,Project can't proceed due to plot limitations
+,,,,,,Design Validation and Authority Approval,Scientific Club,,,,Change in project's contract
+,,,,,,Inception Stage,Townhouse,,,,Unavailability of Permanent Utility  / Tie-in connections
+,,,,,,Traffic Study and Concept design,Villas,,,,
+,,,,,,Design Review & Validation,Priority 1,,,,
+,,,,,,Peer Review Validation,Priority 2,,,,
+,,,,,,Peer Review,,,,,
+,,,,,,Design Review,,,,,
+,,,,,,"Traffic Study, & Gap Analysis",,,,,
+,,,,,,Data Collection & Inception,,,,,
+,,,,,,Detailed Design & Tender Documents,,,,,
+,,,,,,Project Initiation & Data Collection,,,,,
+,,,,,,Pre-Concept,,,,,
+,,,,,,Master planning,,,,,
+,,,,,,Issue Final Building permit/ infra,,,,,
