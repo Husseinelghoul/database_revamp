@@ -1,0 +1,3 @@
+table_name,column_name,constraint_type,value
+project_sustainability,pearl_rating_percentage,MAX,8
+project_sustainability,pearl_rating_percentage,MIN,0

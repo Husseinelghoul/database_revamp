@@ -5,6 +5,7 @@ from utils.logger import setup_logger
 from utils.utils import load_schema_changes
 
 logger = setup_logger()
+
 def add_primary_keys(target_db_url, schema_name, csv_path="config/data_integrity_changes/primary_keys.csv"):
     """
     Add primary keys specified in the CSV file, checking if they already exist first.
