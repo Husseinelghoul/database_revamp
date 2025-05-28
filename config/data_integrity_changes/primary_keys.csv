@@ -47,3 +47,5 @@ master_sub_location,id
 master_delivery_project_manager,id
 master_typology,id
 master_design_executive_director,id
+master_milestone_number,id
+news_feed,id

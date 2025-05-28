@@ -108,3 +108,5 @@ SPA,Forecasted_End_Date,forecasted_end_date
 SPA,SPA_Column_1,number_of_units
 SPA,SPA_Column_4,milestone_status
 SPA,SPA_sorting_order,milestone_sorting_order
+project_summary,TIP_last_submission_date,tip_last_submission_date
+project_summary,EOT_last_submission_date,eot_last_submission_date
