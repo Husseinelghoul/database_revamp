@@ -1,11 +1,9 @@
-from sqlalchemy import create_engine, text
 import pandas as pd
-import logging
+from sqlalchemy import create_engine, text
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+from utils.logger import setup_logger
 
+logger = setup_logger()
 
 def load_schema_changes(csv_path):
     """Helper function to load CSV changes."""

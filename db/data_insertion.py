@@ -1,8 +1,9 @@
 import pandas as pd
 from sqlalchemy import create_engine, text
-import logging
 
-logger = logging.getLogger(__name__)
+from utils.logger import setup_logger
+
+logger = setup_logger()
 
 def populate_master_tables(target_db_url, schema_name, csv_path="config/master_table_values/master_values.csv"):
     """
