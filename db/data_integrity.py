@@ -2,7 +2,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 
 from utils.logger import setup_logger
-from utils.utils import load_schema_changes
+from utils.utils import generate_constraint_name, load_schema_changes
 
 logger = setup_logger()
 
@@ -89,7 +89,7 @@ def add_primary_keys(target_db_url, schema_name, csv_path="config/data_integrity
                         row_count = conn.execute(row_count_query).scalar()
                         
                         if row_count > 0:
-                            logger.warning(f"Table {schema_name}.{table_name} has {row_count} rows. Cannot easily convert column {column_name} to identity. Continuing without making it auto-increment.")
+                            logger.debug(f"Table {schema_name}.{table_name} has {row_count} rows. Cannot easily convert column {column_name} to identity. Continuing without making it auto-increment.")
                         else:
                             # If table is empty, drop and recreate the column as identity
                             temp_column = f"{column_name}_temp"
@@ -98,7 +98,8 @@ def add_primary_keys(target_db_url, schema_name, csv_path="config/data_integrity
                             logger.debug(f"Recreated column {column_name} in table {schema_name}.{table_name} as identity column")
                     except Exception as e:
                         logger.error(f"Failed to set column {column_name} to auto-increment in table {schema_name}.{table_name}: {e}")
-                        logger.warning(f"Continuing with primary key creation despite auto-increment failure")
+                        logger.debug(f"Continuing with primary key creation despite auto-increment failure")
+                        raise e
             
             # Query to check if primary key already exists
             pk_check_query = text(f"""
@@ -149,204 +150,240 @@ def add_primary_keys(target_db_url, schema_name, csv_path="config/data_integrity
 def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/one_to_many_relations.csv"):
     """
     Implement one-to-many relations based on CSV configuration.
-    This function:
-    1. Creates a new column with the referenced IDs
-    2. Updates with correct IDs where references are found, NULL where not found
-    3. Adds foreign key constraint with appropriate deletion action
+    1. Adds a new column for the foreign key ID.
+    2. Populates the new column with IDs from the referenced table.
+    3. Adds a foreign key constraint with ON DELETE NO ACTION.
     
-    CSV columns:
-    - table_name: The table to modify
-    - column_name: The column containing values to replace
-    - replaced_with: The new column name for the foreign key
-    - referenced_table: The table containing the reference data
-    - referenced_column: The ID column in the referenced table
-    - lookup_column: The column in the referenced table to match values
+    CSV: table_name, column_name, replaced_with, referenced_table, referenced_column, lookup_column
     """
-    relations_df = load_schema_changes(csv_path)
+    try:
+        relations_df = load_schema_changes(csv_path) # Ensure this function is defined
+    except Exception as e:
+        logger.error(f"Could not load one-to-many relations from {csv_path}. Aborting. Error: {e}")
+        return
+
     engine = create_engine(target_db_url)
     
-    # Track tables with foreign keys to handle multiple references to the same table
-    table_references = {}
-    
-    # First pass: collect all table relationships
-    for _, row in relations_df.iterrows():
-        table_name = row["table_name"]
-        referenced_table = row["referenced_table"]
-        
-        if table_name not in table_references:
-            table_references[table_name] = {}
-        
-        if referenced_table not in table_references[table_name]:
-            table_references[table_name][referenced_table] = 0
-            
-        table_references[table_name][referenced_table] += 1
-    
-    with engine.begin() as conn:
+    with engine.begin() as conn: 
         for _, row in relations_df.iterrows():
-            table_name = row["table_name"]
-            column_name = row["column_name"]
-            replaced_with = row["replaced_with"]
-            referenced_table = row["referenced_table"]
-            referenced_column = row["referenced_column"]
-            lookup_column = row["lookup_column"]
+            table_name = str(row["table_name"]).strip()
+            column_name = str(row["column_name"]).strip() 
+            replaced_with = str(row["replaced_with"]).strip() 
+            referenced_table = str(row["referenced_table"]).strip()
+            referenced_column = str(row["referenced_column"]).strip() 
+            lookup_column = str(row["lookup_column"]).strip() 
+
+            logger.debug(f"Processing one-to-many: {schema_name}.{table_name}.{replaced_with} -> {schema_name}.{referenced_table}.{referenced_column}")
+            
             try:
-                # Step 1: Add the new column for the foreign key (allowing NULL)
-                conn.execute(text(
-                    f"ALTER TABLE {schema_name}.{table_name} "
-                    f"ADD {replaced_with} INT NULL"
-                ))
-                logger.debug(f"Added column {replaced_with} to {schema_name}.{table_name}")
-                
-                # Step 2: Update the new column with referenced IDs
+                # Check if the new FK column already exists
+                check_col_exists_query = f"""
+                SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = '{schema_name}' AND TABLE_NAME = '{table_name}' AND COLUMN_NAME = '{replaced_with}'
+                """
+                col_exists = conn.execute(text(check_col_exists_query)).fetchone()
+
+                if not col_exists:
+                    # Add the new column for the foreign key (allowing NULL initially)
+                    conn.execute(text(
+                        f"ALTER TABLE {schema_name}.{table_name} ADD {replaced_with} INT NULL" # Assuming integer IDs
+                    ))
+                    logger.debug(f"Added column {replaced_with} to {schema_name}.{table_name}")
+                else:
+                    logger.debug(f"Column {replaced_with} already exists in {schema_name}.{table_name}.")
+
+                # Update the new column with referenced IDs
                 update_query = f"""
                 UPDATE src
-                SET {replaced_with} = ref.{referenced_column}
-                FROM {schema_name}.{table_name} src
-                LEFT JOIN {schema_name}.{referenced_table} ref
+                SET src.{replaced_with} = ref.{referenced_column}
+                FROM {schema_name}.{table_name} AS src
+                LEFT JOIN {schema_name}.{referenced_table} AS ref
                     ON src.{column_name} = ref.{lookup_column}
+                WHERE src.{replaced_with} IS NULL;  -- Optionally, only update if not already set
                 """
-                conn.execute(text(update_query))
+                result = conn.execute(text(update_query))
+                logger.debug(f"Updated {replaced_with} in {schema_name}.{table_name}. Rows affected: {result.rowcount}")
                 
-                # Log the number of unmatched references
+                # Log the number of still unmatched references
                 unmatched_query = f"""
-                SELECT COUNT(*) as unmatched_count
+                SELECT COUNT(*) AS unmatched_count
                 FROM {schema_name}.{table_name}
-                WHERE {replaced_with} IS NULL
+                WHERE {replaced_with} IS NULL 
+                AND {column_name} IS NOT NULL AND LTRIM(RTRIM(CAST({column_name} AS VARCHAR(MAX)))) <> '';
                 """
-                unmatched_count = conn.execute(text(unmatched_query)).scalar()
-                if unmatched_count:
-                    logger.debug(f"Found {unmatched_count} unmatched references in {schema_name}.{table_name}.{column_name}")
+                unmatched_count = conn.execute(text(unmatched_query)).scalar_one_or_none()
+                if unmatched_count and unmatched_count > 0:
+                    logger.debug(f"{unmatched_count} entries in {schema_name}.{table_name} could not find a match in {schema_name}.{referenced_table} via {column_name} -> {lookup_column}. {replaced_with} remains NULL for these.")
                 
-                # Step 3: Add foreign key constraint with appropriate deletion action
-                # Use NO ACTION for multiple references to the same table to avoid cascade cycles
-                delete_action = "NO ACTION" if table_references[table_name].get(referenced_table, 0) > 1 else "SET NULL"
-                
-                add_fk_query = f"""
-                ALTER TABLE {schema_name}.{table_name}
-                ADD CONSTRAINT FK_{table_name}_{replaced_with}
-                FOREIGN KEY ({replaced_with}) REFERENCES {schema_name}.{referenced_table}({referenced_column})
-                ON DELETE {delete_action}
+                # Add foreign key constraint
+                delete_action = "NO ACTION" 
+                fk_constraint_name = generate_constraint_name(
+                    prefix="FK",
+                    name_elements=[table_name, referenced_table, replaced_with]
+                )
+
+                # Check if FK constraint already exists
+                check_fk_exists_query = f"""
+                SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+                WHERE CONSTRAINT_TYPE = 'FOREIGN KEY' AND CONSTRAINT_NAME = '{fk_constraint_name}'
+                AND TABLE_SCHEMA = '{schema_name}' AND TABLE_NAME = '{table_name}';
                 """
-                conn.execute(text(add_fk_query))
-                logger.debug(f"Added foreign key constraint on {replaced_with} in {schema_name}.{table_name} with ON DELETE {delete_action}")
+                fk_exists = conn.execute(text(check_fk_exists_query)).fetchone()
+
+                if not fk_exists:
+                    add_fk_query = f"""
+                    ALTER TABLE {schema_name}.{table_name}
+                    ADD CONSTRAINT {fk_constraint_name}
+                    FOREIGN KEY ({replaced_with}) REFERENCES {schema_name}.{referenced_table}({referenced_column})
+                    ON DELETE {delete_action}
+                    ON UPDATE NO ACTION;
+                    """
+                    conn.execute(text(add_fk_query))
+                    logger.debug(f"Added foreign key {fk_constraint_name} on {replaced_with} in {schema_name}.{table_name} with ON DELETE {delete_action}.")
+                else:
+                    logger.debug(f"Foreign key {fk_constraint_name} already exists on {schema_name}.{table_name}.")
                 
             except Exception as e:
-                logger.error(f"Failed to implement one-to-many relation for {schema_name}.{table_name}.{column_name}: {e}")
-                raise e
+                logger.error(f"Failed for {schema_name}.{table_name}.{column_name} -> {replaced_with}: {e}")
+                raise 
 
 def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/many_to_many_relations.csv"):
     """
     Implement many-to-many relations based on CSV configuration.
-    This function:
-    1. Creates associative tables if they don't exist
-    2. Populates the associative tables with correct relationships
-    3. Logs unmatched values for later investigation
+    1. Creates associative tables if they don't exist.
+    2. Populates associative tables.
+    3. Logs unmatched values.
     
-    CSV columns:
-    - source_table: The table containing the semi-colon separated values
-    - source_id_column: The ID column in the source table
-    - source_multi_column: The column containing semi-colon separated values
-    - lookup_table: The table containing the reference entities
-    - lookup_name_column: The column with names to match in the lookup table
-    - lookup_id_column: The ID column in the lookup table
-    - associative_table: The name for the new associative table
-    - assoc_source_column: Foreign key column for the source table
-    - assoc_lookup_column: Foreign key column for the lookup table
+    CSV: source_table, source_id_column, source_multi_column, lookup_table, 
+         lookup_name_column, lookup_id_column, associative_table, 
+         assoc_source_column, assoc_lookup_column
     """
-    relations_df = load_schema_changes(csv_path)
+    try:
+        relations_df = load_schema_changes(csv_path) # Ensure this function is defined
+    except Exception as e:
+        logger.error(f"Could not load many-to-many relations from {csv_path}. Aborting. Error: {e}")
+        return
+
     engine = create_engine(target_db_url)
     
     with engine.begin() as conn:
         for _, row in relations_df.iterrows():
-            source_table = row["source_table"]
-            source_id_column = row["source_id_column"]
-            source_multi_column = row["source_multi_column"]
-            lookup_table = row["lookup_table"]
-            lookup_name_column = row["lookup_name_column"]
-            lookup_id_column = row["lookup_id_column"]
-            associative_table = row["associative_table"]
-            assoc_source_column = row["assoc_source_column"]
-            assoc_lookup_column = row["assoc_lookup_column"]
+            source_table = str(row["source_table"]).strip()
+            source_id_column = str(row["source_id_column"]).strip()
+            source_multi_column = str(row["source_multi_column"]).strip()
+            lookup_table = str(row["lookup_table"]).strip()
+            lookup_name_column = str(row["lookup_name_column"]).strip()
+            lookup_id_column = str(row["lookup_id_column"]).strip()
+            associative_table = str(row["associative_table"]).strip()
+            assoc_source_column = str(row["assoc_source_column"]).strip() 
+            assoc_lookup_column = str(row["assoc_lookup_column"]).strip()
+
+            logger.debug(f"Processing many-to-many: {schema_name}.{source_table} <-> {schema_name}.{lookup_table} via {schema_name}.{associative_table}")
+
             try:
+                # Generate constraint names
+                fk_assoc_to_source_name = generate_constraint_name(
+                    prefix="FK",
+                    name_elements=[associative_table, source_table, assoc_source_column]
+                )
+                fk_assoc_to_lookup_name = generate_constraint_name(
+                    prefix="FK",
+                    name_elements=[associative_table, lookup_table, assoc_lookup_column]
+                )
+                uq_constraint_name = generate_constraint_name(
+                    prefix="UQ",
+                    name_elements=[associative_table, assoc_source_column, assoc_lookup_column]
+                )
+                
                 # Create associative table if it doesn't exist
-                # Note: In many-to-many relationships, we typically don't allow NULLs
-                # in the associative table - we simply don't create the relationship
                 create_table_query = f"""
                 IF OBJECT_ID('{schema_name}.{associative_table}', 'U') IS NULL
                 BEGIN
                     CREATE TABLE {schema_name}.{associative_table} (
-                        id INT IDENTITY(1,1) PRIMARY KEY,
+                        id INT IDENTITY(1,1) PRIMARY KEY, 
                         {assoc_source_column} INT NOT NULL,
                         {assoc_lookup_column} INT NOT NULL,
-                        CONSTRAINT FK_{associative_table}_{source_table} 
-                            FOREIGN KEY ({assoc_source_column}) 
-                            REFERENCES {schema_name}.{source_table}({source_id_column}),
-                        CONSTRAINT FK_{associative_table}_{lookup_table} 
-                            FOREIGN KEY ({assoc_lookup_column}) 
-                            REFERENCES {schema_name}.{lookup_table}({lookup_id_column})
-                    )
+                        CONSTRAINT {fk_assoc_to_source_name}
+                            FOREIGN KEY ({assoc_source_column}) REFERENCES {schema_name}.{source_table}({source_id_column})
+                            ON DELETE NO ACTION ON UPDATE NO ACTION, 
+                        CONSTRAINT {fk_assoc_to_lookup_name}
+                            FOREIGN KEY ({assoc_lookup_column}) REFERENCES {schema_name}.{lookup_table}({lookup_id_column})
+                            ON DELETE NO ACTION ON UPDATE NO ACTION,
+                        CONSTRAINT {uq_constraint_name} 
+                            UNIQUE ({assoc_source_column}, {assoc_lookup_column}) 
+                    );
+                    PRINT 'Created associative table {schema_name}.{associative_table}';
+                END
+                ELSE
+                BEGIN
+                    PRINT 'Associative table {schema_name}.{associative_table} already exists.';
                 END
                 """
                 conn.execute(text(create_table_query))
-                logger.debug(f"Created associative table {schema_name}.{associative_table} if it didn't exist")
+                logger.debug(f"Ensured associative table {schema_name}.{associative_table} exists.")
                 
-                # Get all source rows with their multi-values
+                # Get all source rows with their multi-values to process
                 source_data_query = f"""
                 SELECT {source_id_column}, {source_multi_column}
                 FROM {schema_name}.{source_table}
-                WHERE {source_multi_column} IS NOT NULL AND {source_multi_column} != ''
+                WHERE {source_multi_column} IS NOT NULL AND LTRIM(RTRIM(CAST({source_multi_column} AS VARCHAR(MAX)))) <> '';
                 """
-                source_data = pd.read_sql(source_data_query, conn)
+                source_df = pd.read_sql_query(text(source_data_query), conn)
                 
-                # Get all lookup values for mapping
+                # Get all lookup values for efficient mapping
                 lookup_data_query = f"""
                 SELECT {lookup_id_column}, {lookup_name_column}
-                FROM {schema_name}.{lookup_table}
+                FROM {schema_name}.{lookup_table};
                 """
-                lookup_data = pd.read_sql(lookup_data_query, conn)
-                lookup_dict = dict(zip(lookup_data[lookup_name_column], lookup_data[lookup_id_column]))
+                lookup_df = pd.read_sql_query(text(lookup_data_query), conn)
+                # Create a dictionary for quick lookups: {lookup_name: lookup_id}
+                lookup_dict = pd.Series(lookup_df[lookup_id_column].values, index=lookup_df[lookup_name_column].str.strip()).to_dict()
                 
-                # Track unmatched values for logging
-                unmatched_values = []
-                
-                # For each source row, create entries in the associative table
-                for _, src_row in source_data.iterrows():
-                    source_id = src_row[source_id_column]
-                    values_str = src_row[source_multi_column]
+                unmatched_values_log = {} # To store source_id and the value that didn't match
+
+                for _, src_row in source_df.iterrows():
+                    source_id_val = src_row[source_id_column]
+                    multi_value_str = src_row[source_multi_column]
                     
-                    # Split by semicolon and strip whitespace
-                    if values_str and isinstance(values_str, str):
-                        values = [v.strip() for v in values_str.split(';')]
+                    if pd.isna(multi_value_str) or not isinstance(multi_value_str, str):
+                        continue
+
+                    individual_values = [v.strip() for v in multi_value_str.split(';') if v.strip()]
+                    
+                    for value_to_lookup in individual_values:
+                        # Normalize value_to_lookup if lookup_dict keys are normalized (e.g. .lower())
+                        matched_lookup_id = lookup_dict.get(value_to_lookup) # Case-sensitive match by default
                         
-                        for value in values:
-                            if value:
-                                lookup_id = lookup_dict.get(value)
-                                if lookup_id is not None:
-                                    # Check if the relationship already exists
-                                    check_query = f"""
-                                    SELECT 1 FROM {schema_name}.{associative_table}
-                                    WHERE {assoc_source_column} = {source_id} AND {assoc_lookup_column} = {lookup_id}
-                                    """
-                                    exists = conn.execute(text(check_query)).fetchone()
-                                    
-                                    if not exists:
-                                        # Insert the new relationship
-                                        insert_query = f"""
-                                        INSERT INTO {schema_name}.{associative_table} ({assoc_source_column}, {assoc_lookup_column})
-                                        VALUES ({source_id}, {lookup_id})
-                                        """
-                                        conn.execute(text(insert_query))
-                                else:
-                                    # Track unmatched values for later investigation
-                                    unmatched_values.append(value)
-                                    # logger.debug(f"Skipping unmatched value '{value}' for {source_id} in {source_table}.{source_multi_column}")
+                        if matched_lookup_id is not None:
+                            # Insert into associative table, handling potential duplicates with IF NOT EXISTS
+                            insert_sql = f"""
+                            IF NOT EXISTS (
+                                SELECT 1 FROM {schema_name}.{associative_table} 
+                                WHERE {assoc_source_column} = {source_id_val} 
+                                AND {assoc_lookup_column} = {matched_lookup_id}
+                            )
+                            BEGIN
+                                INSERT INTO {schema_name}.{associative_table} ({assoc_source_column}, {assoc_lookup_column}) 
+                                VALUES ({source_id_val}, {matched_lookup_id});
+                            END
+                            """
+                            try:
+                                conn.execute(text(insert_sql))
+                            except Exception as insert_ex: # Catch specific insert errors if needed
+                                logger.error(f"Error inserting ({source_id_val}, {matched_lookup_id}) into {associative_table}: {insert_ex}")
+                        else:
+                            if source_id_val not in unmatched_values_log:
+                                unmatched_values_log[source_id_val] = []
+                            if value_to_lookup not in unmatched_values_log[source_id_val]: # Avoid duplicate logging for same unmatched value per source_id
+                                unmatched_values_log[source_id_val].append(value_to_lookup)
                 
-                # Log unmatched values
-                if unmatched_values:
-                    unique_unmatched = list(set(unmatched_values))
-                    logger.debug(f"Found {len(unique_unmatched)} unique unmatched values in {source_table}.{source_multi_column}")
-                    # logger.debug(f"Unmatched values: {unique_unmatched}")
+                logger.debug(f"Processed population of {schema_name}.{associative_table}.")
+
+                if unmatched_values_log:
+                    logger.debug(f"Found unmatched values during {schema_name}.{associative_table} population:")
+                    for src_id, vals in unmatched_values_log.items():
+                        logger.debug(f"  Source ID {src_id} (from {source_table}) had unmatched lookup values: {', '.join(vals)}")
                 
             except Exception as e:
-                logger.error(f"Failed to implement many-to-many relation for {schema_name}.{source_table}.{source_multi_column}: {e}")
-                raise e
+                logger.error(f"Failed for {schema_name}.{source_table} ({source_multi_column}) -> {schema_name}.{associative_table}: {e}")
+                raise
