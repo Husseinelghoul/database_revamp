@@ -136,3 +136,4 @@ cython_debug/
 config.json
 schema_details.txt
 .DS_Store
+temp/
