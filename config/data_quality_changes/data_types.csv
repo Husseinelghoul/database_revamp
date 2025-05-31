@@ -21,6 +21,7 @@ contract_vo_status,pvr_value,varchar,float
 contract_vo_status,last_updated,varchar,datetime
 key_achievments,end_date,varchar,date
 key_achievments,last_updated,varchar,datetime
+key_risk,period,varchar,date
 key_risk,forecasted_closure_date,varchar,date
 key_risk,forecast_closure_date_note,varchar,date
 key_risk,last_updated,varchar,datetime
@@ -28,6 +29,7 @@ master_consultant,icv_percentage,varchar,float
 master_contractor,icv_percentage,varchar,float
 master_contractor,worker_welfare_compliance_percentage,varchar,float
 master_pmc_consultant,icv_percentage,varchar,float
+project_kpi,period,varchar,float
 project_kpi,kpi_value,varchar,float
 project_kpi,last_updated,varchar,datetime
 project_kpi,is_executive_kpi,varchar,bit
@@ -46,6 +48,7 @@ project_management,fatalities,varchar,int
 project_management,lti_ratio,varchar,int
 project_management,last_updated,varchar,datetime
 project_management,cost_per_sqm,varchar,bit
+project_milestone,period,nvarchar,date
 project_milestone,milestone_date,varchar,date
 project_milestone,baseline_end_date,varchar,date
 project_milestone,forecasted_end_date,varchar,date
@@ -85,8 +88,13 @@ project_status,last_updated,varchar,datetime
 project_status,key_highlights_last_updated,varchar,datetime
 project_status,kickoff_meeting_date,varchar,date
 project_status,pte,varchar,bigint
+project_status_weightage,period,varchar,date
+project_status_weightage,initiation,varchar,float
 project_status_weightage,ldc_procurement,varchar,float
 project_status_weightage,design,varchar,float
+project_status_weightage,contractor_procurement,varchar,float
+project_status_weightage,construction,varchar,float
+project_status_weightage,handover,varchar,float
 project_status_weightage,overall,varchar,float
 project_status_weightage,last_updated,varchar,datetime
 project_summary,dof_number,varchar,bigint
@@ -119,6 +127,7 @@ project_summary,budget_uplift_last_submission_date,varchar,date
 project_summary,potential_budget_uplift_value,varchar,float
 project_summary,scope_change_approval_date,varchar,date
 project_summary,scope_change_submission_date,varchar,date
+project_sustainability,period,varchar,float
 project_sustainability,reinvented_echonomy_value,varchar,float
 project_sustainability,pearl_rating_percentage,varchar,float
 project_sustainability,recycled_material_percentage,varchar,float

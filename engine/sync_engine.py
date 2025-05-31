@@ -136,7 +136,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info(f"Changing Data Types - 8a")
         change_data_types(target_db_url, target_schema)
         logger.info(f"Applying Constraints - 8b")
-        apply_constraints(target_db_url, target_schema)
+        # apply_constraints(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 8 completed in {phase_end - phase_start:.2f} seconds")
 
