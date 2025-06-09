@@ -23,7 +23,6 @@ key_achievments,end_date,varchar,date
 key_achievments,last_updated,varchar,datetime
 key_risk,period,varchar,date
 key_risk,forecasted_closure_date,varchar,date
-key_risk,forecast_closure_date_note,varchar,date
 key_risk,last_updated,varchar,datetime
 master_consultant,icv_percentage,varchar,float
 master_contractor,icv_percentage,varchar,float
@@ -52,7 +51,6 @@ project_milestone,period,nvarchar,date
 project_milestone,milestone_date,varchar,date
 project_milestone,baseline_end_date,varchar,date
 project_milestone,forecasted_end_date,varchar,date
-project_milestone,milestone_status,varchar,int
 project_milestone,milestone_sorting_order,varchar,int
 project_milestone,last_updated,varchar,datetime
 project_milestone,revised_spa_date,varchar,date
@@ -87,7 +85,6 @@ project_status,eot_to_contractor,varchar,date
 project_status,last_updated,varchar,datetime
 project_status,key_highlights_last_updated,varchar,datetime
 project_status,kickoff_meeting_date,varchar,date
-project_status,pte,varchar,bigint
 project_status_weightage,period,varchar,date
 project_status_weightage,initiation,varchar,float
 project_status_weightage,ldc_procurement,varchar,float
@@ -97,7 +94,6 @@ project_status_weightage,construction,varchar,float
 project_status_weightage,handover,varchar,float
 project_status_weightage,overall,varchar,float
 project_status_weightage,last_updated,varchar,datetime
-project_summary,dof_number,varchar,bigint
 project_summary,decree_date,varchar,date
 project_summary,planned_finish_percentage,varchar,float
 project_summary,period,varchar,date
@@ -137,3 +133,5 @@ project_summary,bond_expiry_date,varchar,date
 project_summary,eot_last_submission_date,varchar,date
 project_summary,scope_change_last_submission_date,varchar,date
 project_summary,tip_last_submission_date,varchar,date
+master_contractor,evaluation_score,varchar,float
+project_milestone,latest_communication_date,varchar,date
