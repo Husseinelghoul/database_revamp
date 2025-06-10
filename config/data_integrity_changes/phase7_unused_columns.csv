@@ -53,3 +53,5 @@ project_summary,design_project_owner_avatar
 key_achievments,stage_status
 key_achievments,sub_stage
 project_milestone,milestone_number
+key_risk,stage_status
+key_risk,sub_stage
