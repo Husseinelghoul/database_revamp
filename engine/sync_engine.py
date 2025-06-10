@@ -103,7 +103,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
     if "phase6" in phases_to_skip:
         logger.info("Skipping Phase 6: Splitting Columns")
     else:
-        phase_start
+        phase_start = time.time()
         phase_end = time.time()
         logger.info("Phase 6: Splitting Columns")
         split_columns(target_db_url, target_schema)

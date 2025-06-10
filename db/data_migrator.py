@@ -40,7 +40,6 @@ def migrate_table(table_name, source_engine, target_engine, source_schema, targe
                 
                 if identity_columns:
                     conn.execute(text(f"SET IDENTITY_INSERT {target_schema}.{table_name} OFF"))
-        
         logger.debug(f"Data duplication completed for table: {table_name}")
     except Exception as e:
         logger.error(f"Failed to duplicate data for table: {table_name}. Error: {e}")
