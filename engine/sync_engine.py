@@ -42,6 +42,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
             tables = filtered_tables
         write_schema(target_db_url, tables, target_schema)
         if application == "insights":
+            logger.info("Writing master tables into insights")
             sync_master_tables()
         phase_end = time.time()
         logger.info(f"Phase 1 completed in {phase_end - phase_start:.2f} seconds")

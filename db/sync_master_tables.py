@@ -17,7 +17,6 @@ insights_db_url = build_connection_url(config[f"insights_target_db"])
 
 
 def sync_master_tables():
-    logger.info("Writing master tables into insights")
     schema, tables = read_schema(pulse_db_url, pulse_source_schema)
     filtered_schema = {key: value for key, value in schema.items() if "master" in key.lower()}
     filtered_tables = {key: value for key, value in tables.items() if 'master' in key.lower()}
