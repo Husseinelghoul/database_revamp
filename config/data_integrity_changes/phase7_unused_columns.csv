@@ -6,7 +6,6 @@ key_risk,rating
 key_risk,risk_category
 key_risk,risk_discipline
 key_risk,risk_owner
-project_kpi,project_type
 project_management,stage_status
 project_management,sub_stage
 project_status,stage_status
