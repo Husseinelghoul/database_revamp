@@ -78,7 +78,8 @@ def write_schema(target_db_url, tables, target_schema):
     """
     Writes the schema to the target MSSQL database using dynamically generated SQLAlchemy table objects.
     Uses the schema specified in the configuration.
-    Aborts on the first failure by raising an exception.
+    Skips table creation if the table already exists in the target database.
+    Aborts on the first failure by raising an exception during table creation (if attempted).
 
     :param target_db_url: SQLAlchemy connection URL for the target database.
     :param tables: Dictionary containing dynamically generated SQLAlchemy table objects.
@@ -86,12 +87,18 @@ def write_schema(target_db_url, tables, target_schema):
     :raises: Exception if any table creation fails.
     """
     engine = create_engine(target_db_url)
+    inspector = inspect(engine)  # Create an inspector object
 
     for table_name, table in tables.items():
         try:
             table.schema = target_schema
-            table.create(bind=engine, checkfirst=True)
-            logger.debug(f"Schema duplication completed for table: {table_name} in schema {target_schema}")
+            full_table_name = f"{target_schema}.{table_name}"
+
+            if not inspector.has_table(table_name, schema=target_schema):
+                table.create(bind=engine, checkfirst=True)
+                logger.debug(f"Schema duplication completed for table: {table_name} in schema {target_schema}")
+            else:
+                logger.info(f"Table {full_table_name} already exists. Skipping creation.")
         except Exception as e:
             logger.error(f"Failed to duplicate schema for table: {table_name} in schema {target_schema}. Error: {e}")
             raise e  # Abort the process on the first failure
