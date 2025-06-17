@@ -140,3 +140,4 @@ contract_vo_status,revised_contract_value,varchar,float
 contract_vo_status,forecasted_contract_value,varchar,float
 community_facility_brief,updated_by,varchar,varchar
 project_milestone,milestone_sorting_order,varchar,int
+project_summary,submitted_eot_date,varchar,date

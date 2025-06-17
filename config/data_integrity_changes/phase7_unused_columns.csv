@@ -54,3 +54,5 @@ key_achievments,sub_stage
 project_milestone,milestone_number
 key_risk,stage_status
 key_risk,sub_stage
+project_summary,procurement_manager
+project_status,procurement_manager
