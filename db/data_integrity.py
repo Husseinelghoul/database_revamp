@@ -277,6 +277,7 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             associative_table = str(row["associative_table"]).strip()
             assoc_source_column = str(row["assoc_source_column"]).strip() 
             assoc_lookup_column = str(row["assoc_lookup_column"]).strip()
+            seperator = str(row["seperator"]).strip()
 
             logger.debug(f"Processing many-to-many: {schema_name}.{source_table} <-> {schema_name}.{lookup_table} via {schema_name}.{associative_table}")
 
@@ -348,7 +349,7 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                     if pd.isna(multi_value_str) or not isinstance(multi_value_str, str):
                         continue
 
-                    individual_values = [v.strip() for v in multi_value_str.split(';') if v.strip()]
+                    individual_values = [v.strip() for v in multi_value_str.split(seperator) if v.strip()]
                     
                     for value_to_lookup in individual_values:
                         # Normalize value_to_lookup if lookup_dict keys are normalized (e.g. .lower())

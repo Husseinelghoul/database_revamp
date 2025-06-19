@@ -8,7 +8,7 @@ from db.data_migrator import migrate_data
 from db.data_quality import apply_constraints, change_data_types
 from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
-from db.schema_changes import split_columns
+from db.schema_changes import split_columns, split_tables
 from db.schema_writer import read_schema, write_schema
 from db.sync_master_tables import sync_master_tables
 from utils.logger import setup_logger
@@ -100,14 +100,17 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         phase_end = time.time()
         logger.info(f"Phase 5 completed in {phase_end - phase_start:.2f} seconds")
     
-    # Phase 6: Splitting columns
+    # Phase 6: Splitting columns and tables
     if "phase6" in phases_to_skip:
         logger.info("Skipping Phase 6: Splitting Columns")
     else:
         phase_start = time.time()
         phase_end = time.time()
-        logger.info("Phase 6: Splitting Columns")
+        logger.info("Phase 6: Splitting Columns and tables")
+        logger.info("Splitting Columns - 6a")
         split_columns(target_db_url, target_schema)
+        logger.info("Splitting tables - 6b")
+        split_tables(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 6 completed in {phase_end - phase_start:.2f} seconds")
 
@@ -140,6 +143,8 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         # apply_constraints(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 8 completed in {phase_end - phase_start:.2f} seconds")
+
+    # Phase 9 implement predecessor and multiphase
 
     end_time = time.time()
     logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds for {application}")
