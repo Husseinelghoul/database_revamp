@@ -8,7 +8,7 @@ logger = setup_logger()
 def drop_tables(target_db_url, schema_name, application: str, csv_path="config/schema_changes/table_drops.csv"):
     """Drop tables specified in the CSV file."""
     drops_df = load_schema_changes(csv_path)
-    drops_df = drops_df[drops_df["database"] == application]
+    drops_df = drops_df[drops_df["database"].isin([application, 'both'])]
     if drops_df.empty:
         logger.info(f"No tables to drop for {application}.")
         return
