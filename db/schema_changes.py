@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine, text
+from itertools import product
 
 from utils.logger import setup_logger
 from utils.utils import load_schema_changes
@@ -74,8 +75,8 @@ def split_tables(target_db_url, schema_name, csv_path="config/schema_changes/tab
     
     The CSV file should have the following columns:
     - source_table_name: Name of the source table
-    - columns_to_copy: Semicolon-separated list of columns to copy as-is
-    - columns_to_split: Semicolon-separated list of columns that contain values to split
+    - columns_to_copy: Comma-separated list of columns to copy as-is
+    - columns_to_split: Comma-separated list of columns that contain values to split
     - separator: The separator character used in the split columns
     - target_table_name: Name of the new table to be created
     """
@@ -94,6 +95,17 @@ def split_tables(target_db_url, schema_name, csv_path="config/schema_changes/tab
             target_table_name = row['target_table_name']
             
             try:
+                # Check if target table already exists and drop it if it does
+                table_exists = conn.execute(text("""
+                    SELECT COUNT(*)
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_SCHEMA = :schema_name AND TABLE_NAME = :table_name;
+                """), {"schema_name": schema_name, "table_name": target_table_name}).fetchone()[0]
+                
+                if table_exists > 0:
+                    conn.execute(text(f"DROP TABLE {schema_name}.{target_table_name};"))
+                    logger.debug(f"Dropped existing table {schema_name}.{target_table_name}")
+                
                 # Get the structure of the source table
                 all_columns = columns_to_copy + columns_to_split
                 
@@ -129,7 +141,7 @@ def split_tables(target_db_url, schema_name, csv_path="config/schema_changes/tab
                     
                     column_definitions.append(column_definition)
                 
-                # Create the target table
+                # Create the target table with an incremental ID column
                 create_table_sql = f"""
                     CREATE TABLE {schema_name}.{target_table_name} (
                         id INT IDENTITY(1,1) PRIMARY KEY,
@@ -146,8 +158,11 @@ def split_tables(target_db_url, schema_name, csv_path="config/schema_changes/tab
                     FROM {schema_name}.{source_table_name};
                 """))
                 
+                # Fetch all rows at once to avoid cursor conflicts
+                all_source_rows = source_data.fetchall()
+                
                 # Process each row from the source table
-                for source_row in source_data:
+                for source_row in all_source_rows:
                     # Convert row to dictionary for easier access
                     row_dict = dict(zip(all_columns, source_row))
                     

@@ -88,29 +88,29 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         rename_tables(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 4 completed in {phase_end - phase_start:.2f} seconds")
-    
-    # Phase 5: Primary keys
+
+    # Phase 5: Splitting columns and tables
     if "phase5" in phases_to_skip:
-        logger.info("Skipping Phase 5: Primary keys")
+        logger.info("Skipping Phase 5: Splitting Columns")
     else:
         phase_start = time.time()
-        logger.info(f"Phase 5: Primary keys")
-        logger.info(f"Setting Primary keys")
-        add_primary_keys(target_db_url, target_schema)
+        phase_end = time.time()
+        logger.info("Phase 5: Splitting Columns and tables")
+        logger.info("Splitting Columns - 5a")
+        split_columns(target_db_url, target_schema)
+        logger.info("Splitting tables - 5b")
+        split_tables(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 5 completed in {phase_end - phase_start:.2f} seconds")
-    
-    # Phase 6: Splitting columns and tables
+
+    # Phase 6: Primary keys
     if "phase6" in phases_to_skip:
-        logger.info("Skipping Phase 6: Splitting Columns")
+        logger.info("Skipping Phase 6: Primary keys")
     else:
         phase_start = time.time()
-        phase_end = time.time()
-        logger.info("Phase 6: Splitting Columns and tables")
-        logger.info("Splitting Columns - 6a")
-        split_columns(target_db_url, target_schema)
-        logger.info("Splitting tables - 6b")
-        split_tables(target_db_url, target_schema)
+        logger.info(f"Phase 6: Primary keys")
+        logger.info(f"Setting Primary keys")
+        add_primary_keys(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 6 completed in {phase_end - phase_start:.2f} seconds")
 

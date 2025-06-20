@@ -49,3 +49,5 @@ master_typology,id
 master_design_executive_director,id
 master_milestone_number,id
 news_feed,id
+lookup_project_to_phase,id
+lookup_project_to_project_phase_category,id

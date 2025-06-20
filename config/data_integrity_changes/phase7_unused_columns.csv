@@ -58,3 +58,10 @@ project_summary,procurement_manager
 project_status,procurement_manager
 project_status,phase
 project_status,project_phase_category
+lookup_project_to_phase,project_phase_category
+lookup_project_to_project_phase_category,project_phase_category
+contract_vo_status,phase
+project_management,phase
+key_risk,phase
+authority_approvals_tracking,phase
+key_achievments,phase
