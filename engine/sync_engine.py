@@ -7,6 +7,7 @@ from db.data_integrity import (add_primary_keys,
 from db.data_migrator import migrate_data
 from db.data_quality import apply_constraints, change_data_types
 from db.drop_operations import drop_columns, drop_tables
+from db.predecessor_successor import implement_predecessor_successor
 from db.rename_operations import rename_columns, rename_tables
 from db.schema_changes import split_columns, split_tables
 from db.schema_writer import read_schema, write_schema
@@ -144,7 +145,15 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         phase_end = time.time()
         logger.info(f"Phase 8 completed in {phase_end - phase_start:.2f} seconds")
 
-    # Phase 9 implement predecessor and multiphase
+    # Phase 9 Implement predecessor-successor
+    if "phase9" in phases_to_skip:
+        logger.info("Skipping Phase 9: Implement predecessor-successor")
+    else:
+        phase_start = time.time()
+        logger.info(f"Phase 9: Implement predecessor-successor")
+        implement_predecessor_successor(target_db_url, target_schema)
+        phase_end = time.time()
+        logger.info(f"Phase 9 completed in {phase_end - phase_start:.2f} seconds")
 
     end_time = time.time()
     logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds for {application}")
