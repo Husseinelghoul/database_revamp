@@ -53,17 +53,14 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info("Skipping Phase 2: Data Duplication")
     else:
         logger.info("Phase 2: Migrating data to target database...")
-        if application == "blaaa": #TODO: fixme
-            logger.info("Skipping Phase 2 for Insights")
-        else:
-            phase_start = time.time()
-            if application == "insights":
-                filtered_schema = {key: value for key, value in schema.items() if "master" not in key.lower()}
-                schema = filtered_schema
-            migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema,
-                         project_name=['Building community facilities for the BaniYas North project - Stage One'])
-            phase_end = time.time()
-            logger.info(f"Phase 2 completed in {phase_end - phase_start:.2f} seconds")
+        phase_start = time.time()
+        if application == "insights":
+            filtered_schema = {key: value for key, value in schema.items() if "master" not in key.lower()}
+            schema = filtered_schema
+        migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema,
+                        project_names=None)
+        phase_end = time.time()
+        logger.info(f"Phase 2 completed in {phase_end - phase_start:.2f} seconds")
 
     # Phase 3: Table and Column Removal
     if "phase3" in phases_to_skip:
@@ -104,8 +101,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         split_tables(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 5 completed in {phase_end - phase_start:.2f} seconds")
-
-    # Phase 6: Primary keys
+    # Phase 7: Primary keys
     if "phase6" in phases_to_skip:
         logger.info("Skipping Phase 6: Primary keys")
     else:
@@ -116,45 +112,44 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         phase_end = time.time()
         logger.info(f"Phase 6 completed in {phase_end - phase_start:.2f} seconds")
 
-    # Phase 7: Add Foreing Keys for Master Tables
-    if "phase7" in phases_to_skip:
-        logger.info("Skipping Phase 7: Add Foreing Keys for Master Tables")
+    # Phase 7 Implement predecessor-successor
+    if "phase6" in phases_to_skip:
+        logger.info("Skipping Phase 7: Implement predecessor-successor")
     else:
         phase_start = time.time()
-        logger.info(f"Phase 7: Add Foreing Keys for Master Tables")
-        logger.info(f"Populating master tables - 7a")
-        populate_master_tables(target_db_url, target_schema)
-        logger.info(f"Implementing one to many relations - 7b")
-        implement_one_to_many_relations(target_db_url, target_schema,csv_path="config/data_integrity_changes/phase7_one_to_many_relations.csv")
-        logger.info(f"Implementing many to many relations - 7c")
-        implement_many_to_many_relations(target_db_url, target_schema, csv_path="config/data_integrity_changes/phase7_many_to_many_relations.csv")
-        logger.info(f"Dropping unused columns - 7d")
-        drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/phase7_unused_columns.csv")
+        logger.info(f"Phase 7: Implement predecessor-successor")
+        implement_predecessor_successor(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 7 completed in {phase_end - phase_start:.2f} seconds")
 
-    # Phase 8: Data Quality Changes
+    # Phase 8: Add Foreing Keys for Master Tables
     if "phase8" in phases_to_skip:
-        logger.info("Skipping Phase 8: Data Quality Changes")
+        logger.info("Skipping Phase 8: Add Foreing Keys for Master Tables")
     else:
         phase_start = time.time()
-        logger.info(f"Phase 8: Data Quality Changes")
-        logger.info(f"Changing Data Types - 8a")
-        change_data_types(target_db_url, target_schema)
-        logger.info(f"Applying Constraints - 8b")
-        # apply_constraints(target_db_url, target_schema)
+        logger.info(f"Phase 8: Add Foreing Keys for Master Tables")
+        logger.info(f"Populating master tables - 8a")
+        populate_master_tables(target_db_url, target_schema)
+        logger.info(f"Implementing one to many relations - 8b")
+        implement_one_to_many_relations(target_db_url, target_schema,csv_path="config/data_integrity_changes/phase7_one_to_many_relations.csv")
+        logger.info(f"Implementing many to many relations - 8c")
+        implement_many_to_many_relations(target_db_url, target_schema, csv_path="config/data_integrity_changes/phase7_many_to_many_relations.csv")
+        logger.info(f"Dropping unused columns - 8d")
+        drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/phase7_unused_columns.csv")
         phase_end = time.time()
         logger.info(f"Phase 8 completed in {phase_end - phase_start:.2f} seconds")
 
-    # Phase 9 Implement predecessor-successor
+    # Phase 9: Data Quality Changes
     if "phase9" in phases_to_skip:
-        logger.info("Skipping Phase 9: Implement predecessor-successor")
+        logger.info("Skipping Phase 9: Data Quality Changes")
     else:
         phase_start = time.time()
-        logger.info(f"Phase 9: Implement predecessor-successor")
-        implement_predecessor_successor(target_db_url, target_schema)
+        logger.info(f"Phase 9: Data Quality Changes")
+        logger.info(f"Changing Data Types - 9a")
+        change_data_types(target_db_url, target_schema)
+        logger.info(f"Applying Constraints - 9b")
+        # apply_constraints(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 9 completed in {phase_end - phase_start:.2f} seconds")
-
     end_time = time.time()
     logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds for {application}")

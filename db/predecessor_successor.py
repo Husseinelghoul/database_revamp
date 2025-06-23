@@ -1,8 +1,6 @@
 import pandas as pd
 from sqlalchemy import create_engine, text
 import json
-
-from config.db_config import build_connection_url, load_config
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -389,21 +387,3 @@ def implement_predecessor_successor(target_db_url, schema_name):
     # Show progress
     get_processing_progress(target_db_url, schema_name)
 
-# Example usage
-# if __name__ == "__main__":
-#     # Configure logging
-    
-    
-#     # Example connection string - replace with your actual values
-#     config = load_config("config.json")
-#     target_schema = config['pulse_source_db']['schema']
-#     target_schema = config['pulse_source_db']['schema']
-#     target_config = config['pulse_source_db']
-#     target_db_url = build_connection_url(target_config)
-#     schema_name = target_schema
-    
-#     try:
-#         implement_predecessor_successor(target_db_url, schema_name)
-#     except Exception as e:
-#         logger.error(f"Process failed: {e}")
-#         raise e
