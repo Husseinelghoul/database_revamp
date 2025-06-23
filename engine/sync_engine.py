@@ -60,7 +60,8 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
             if application == "insights":
                 filtered_schema = {key: value for key, value in schema.items() if "master" not in key.lower()}
                 schema = filtered_schema
-            migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema)
+            migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema,
+                         project_name=['Building community facilities for the BaniYas North project - Stage One'])
             phase_end = time.time()
             logger.info(f"Phase 2 completed in {phase_end - phase_start:.2f} seconds")
 

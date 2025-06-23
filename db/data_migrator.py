@@ -28,12 +28,34 @@ def get_column_count(inspector, table_name, schema):
     return len(columns)
 
 
+def has_project_name_column(inspector, table_name, schema):
+    """Check if the table has a project_name column"""
+    columns = inspector.get_columns(table_name, schema=schema)
+    return any(col["name"].lower() == "project_name" for col in columns)
+
+
+def should_get_all_projects(project_names):
+    """Check if we should get all projects (wildcard or empty list)"""
+    return not project_names or (len(project_names) == 1 and project_names[0] == "*")
+
+
+def build_project_filter_query(table_name, schema, project_names):
+    """Build SQL query with project_name filter"""
+    if should_get_all_projects(project_names):
+        return f"SELECT * FROM {schema}.{table_name}"
+    
+    # Create parameterized query for security
+    placeholders = ", ".join([f"'{name}'" for name in project_names])
+    return f"SELECT * FROM {schema}.{table_name} WHERE project_name IN ({placeholders})"
+
+
 def migrate_table(
     table_name,
     source_engine,
     target_engine,
     source_schema,
     target_schema,
+    project_names=None,
     chunksize=CHUNK_SIZE,
     batch_size=BATCH_SIZE,
 ):
@@ -47,9 +69,36 @@ def migrate_table(
             chunksize = int(chunksize / 10)
             batch_size = int(batch_size / 10)
 
-        for chunk in pd.read_sql_table(
-            table_name, source_engine, schema=source_schema, chunksize=chunksize
-        ):
+        # Check if table has project_name column and build appropriate query
+        has_project_column = has_project_name_column(inspector, table_name, source_schema)
+        
+        if has_project_column and project_names:
+            # Use custom SQL query with project filter
+            query = build_project_filter_query(table_name, source_schema, project_names)
+            logger.debug(f"Filtering table {table_name} by projects: {project_names}")
+            
+            # Read data with custom query
+            data_reader = pd.read_sql(
+                query, 
+                source_engine, 
+                chunksize=chunksize
+            )
+        else:
+            # Use standard table read (no project filter needed or available)
+            if has_project_column:
+                logger.debug(f"Table {table_name} has project_name column but no filter specified - getting all data")
+            else:
+                logger.debug(f"Table {table_name} has no project_name column - getting all data")
+                
+            data_reader = pd.read_sql_table(
+                table_name, 
+                source_engine, 
+                schema=source_schema, 
+                chunksize=chunksize
+            )
+
+        # Process chunks
+        for chunk in data_reader:
             with target_engine.begin() as conn:
                 if identity_columns:
                     conn.execute(
@@ -80,12 +129,27 @@ def migrate_table(
 
 
 def migrate_data(
-    source_db_url, target_db_url, schema, source_schema: str, target_schema: str
+    source_db_url, 
+    target_db_url, 
+    schema, 
+    source_schema: str, 
+    target_schema: str,
+    project_names: list = None
 ):
     """
     Migrates data from the source database to the target database.
     Handles identity constraints and migrates tables in parallel.
     Skips any table found in the config/schema_changes/table_drops.csv file.
+    
+    Args:
+        source_db_url: Source database connection URL
+        target_db_url: Target database connection URL
+        schema: Dictionary of table schemas
+        source_schema: Source schema name
+        target_schema: Target schema name
+        project_names: List of project names to filter by. If None, ['*'], or empty, gets all data.
+                      If contains '*' as single element, gets all data.
+                      Otherwise filters tables with project_name column by specified projects.
     """
 
     # 🔧 Create engines with tuned connection pools
@@ -104,6 +168,12 @@ def migrate_data(
         pool_timeout=30,
         poolclass=QueuePool,
     )
+
+    # Handle project names parameter
+    if project_names is None:
+        project_names = []
+    
+    logger.info(f"Migration starting with project filter: {project_names if project_names else 'ALL PROJECTS'}")
 
     # 📄 Load dropped tables list
     try:
@@ -134,6 +204,7 @@ def migrate_data(
                 target_engine,
                 source_schema,
                 target_schema,
+                project_names,
             ): table_name
             for table_name in schema
         }
@@ -152,3 +223,5 @@ def migrate_data(
     # ✅ Clean up connections
     source_engine.dispose()
     target_engine.dispose()
+    
+    logger.info("Migration completed successfully")
