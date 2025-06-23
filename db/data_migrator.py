@@ -173,7 +173,7 @@ def migrate_data(
     if project_names is None:
         project_names = []
     
-    logger.info(f"Migration starting with project filter: {project_names if project_names else 'ALL PROJECTS'}")
+    logger.debug(f"Migration starting with project filter: {project_names if project_names else 'ALL PROJECTS'}")
 
     # 📄 Load dropped tables list
     try:
