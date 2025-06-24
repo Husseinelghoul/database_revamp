@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, text
 from itertools import product
 import pandas as pd
 
+from config.constants import PROCESSING_CHUNK_SIZE
 from utils.logger import setup_logger
 from utils.utils import load_schema_changes
 
@@ -76,7 +77,7 @@ def split_tables(target_db_url, schema_name, csv_path="config/schema_changes/tab
     and a generic schema for the target table.
     """
     # This defines how many rows to process from the source table at a time.
-    CHUNK_SIZE = 1000
+    CHUNK_SIZE = PROCESSING_CHUNK_SIZE
     
     try:
         splits_df = pd.read_csv(csv_path)
