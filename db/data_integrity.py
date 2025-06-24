@@ -1,151 +1,104 @@
 import pandas as pd
+from sqlalchemy.exc import SQLAlchemyError
+
 from sqlalchemy import create_engine, text
 
 from utils.logger import setup_logger
 from utils.utils import generate_constraint_name, load_schema_changes
 
 logger = setup_logger()
-
-def add_primary_keys(target_db_url, schema_name, csv_path="config/data_integrity_changes/primary_keys.csv"):
+def add_primary_keys(target_db_url, schema_name):
     """
-    Add primary keys specified in the CSV file, checking if they already exist first.
-    Makes columns NOT NULL if they are nullable.
-    Makes integer columns auto-incrementing if they aren't already.
+    Assertively ensures that for every table with an 'id' column, 'id' is the primary key,
+    EXCLUDING a predefined list of infrastructure tables.
     """
-    primary_keys_df = load_schema_changes(csv_path)
     engine = create_engine(target_db_url)
+
+    # The list of tables to completely ignore during the process.
+    excluded_tables = (
+        'app_user',
+        'user_view_permission',
+        'user_project',
+        'user_entity',
+        'sessions',
+        'role_template'
+    )
+
+    # --- FIX APPLIED HERE ---
+    # Instead of passing the tuple as a parameter, we format it directly into the SQL string.
+    # This is safe because the list is hardcoded and not from user input.
+    # This avoids the pyodbc driver's TVP (Table-Valued Parameter) bug.
+    excluded_tables_sql_str = ", ".join([f"'{table}'" for table in excluded_tables])
+
+    discovery_sql = text(f"""
+        SELECT
+            t.TABLE_NAME,
+            c.COLUMN_NAME AS IdColumnName,
+            pk.ConstraintName,
+            pk.PkColumnName
+        FROM
+            INFORMATION_SCHEMA.TABLES t
+        INNER JOIN
+            INFORMATION_SCHEMA.COLUMNS c ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
+        LEFT JOIN (
+            SELECT
+                tc.TABLE_SCHEMA,
+                tc.TABLE_NAME,
+                tc.CONSTRAINT_NAME AS ConstraintName,
+                kcu.COLUMN_NAME AS PkColumnName
+            FROM
+                INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            JOIN
+                INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+            WHERE
+                tc.TABLE_SCHEMA = :schema_name
+                AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+        ) AS pk ON t.TABLE_SCHEMA = pk.TABLE_SCHEMA AND t.TABLE_NAME = pk.TABLE_NAME
+        WHERE
+            t.TABLE_SCHEMA = :schema_name
+            AND t.TABLE_TYPE = 'BASE TABLE'
+            AND LOWER(c.COLUMN_NAME) = 'id'
+            AND t.TABLE_NAME NOT IN ({excluded_tables_sql_str});
+    """)
+
+    try:
+        with engine.connect() as conn:
+            # We no longer pass the 'excluded_tables' tuple as a parameter.
+            results = conn.execute(discovery_sql, {"schema_name": schema_name}).fetchall()
+            tables_to_process = [(row[0], row[1], row[2], row[3]) for row in results]
+    except SQLAlchemyError as e:
+        logger.exception(f"Fatal: Failed to query schema information.")
+        return
+
+    if not tables_to_process:
+        logger.debug(f"No tables requiring primary key changes were found in schema '{schema_name}' (after exclusions). No action needed.")
+        return
+
+    logger.debug(f"Found {len(tables_to_process)} tables that need a primary key on their 'id' column.")
+
+    # The logic below this point remains the same and is correct.
     with engine.begin() as conn:
-        for _, row in primary_keys_df.iterrows():
-            table_name = row["table_name"]
-            column_name = row["column_name"]
+        for table_name, id_column_name, pk_constraint_name, pk_column_name in tables_to_process:
+            full_table_name = f'"{schema_name}"."{table_name}"'
             
-            # Check column data type and nullability
-            column_info_query = text(f"""
-                SELECT data_type, is_nullable
-                FROM information_schema.columns
-                WHERE table_schema = :schema
-                AND table_name = :table
-                AND column_name = :column
-            """)
-            
-            column_info = conn.execute(
-                column_info_query,
-                {"schema": schema_name, "table": table_name, "column": column_name}
-            ).fetchone()
-            
-            if not column_info:
-                logger.error(f"Column {column_name} not found in table {schema_name}.{table_name}")
+            if pk_constraint_name and pk_column_name.lower() == id_column_name.lower():
+                logger.debug(f"OK: Primary key on {full_table_name} is already correctly set to '{id_column_name}'.")
                 continue
-                
-            data_type, is_nullable = column_info
-            
-            # Make column NOT NULL if it's nullable (SQL Server syntax)
-            if is_nullable == 'YES':
-                logger.debug(f"Column {column_name} in table {schema_name}.{table_name} is nullable, making it NOT NULL")
-                try:
-                    # SQL Server syntax for altering column to NOT NULL
-                    # We need to include the data type when changing nullability
-                    conn.execute(text(f"ALTER TABLE {schema_name}.{table_name} ALTER COLUMN {column_name} {data_type} NOT NULL"))
-                    logger.debug(f"Set column {column_name} in table {schema_name}.{table_name} to NOT NULL")
-                except Exception as e:
-                    logger.error(f"Failed to set column {column_name} to NOT NULL in table {schema_name}.{table_name}: {e}")
-                    raise e
-            
-            # Check if integer column is already auto-incrementing (SQL Server specific)
-            is_integer = data_type in ('integer', 'int', 'bigint', 'smallint')
-            is_identity = False
-            
-            if is_integer:
-                # SQL Server-specific query to check if column is identity
-                identity_check_query = text(f"""
-                    SELECT COUNT(*)
-                    FROM sys.columns c
-                    JOIN sys.tables t ON c.object_id = t.object_id
-                    JOIN sys.schemas s ON t.schema_id = s.schema_id
-                    WHERE s.name = :schema
-                    AND t.name = :table
-                    AND c.name = :column
-                    AND c.is_identity = 1
-                """)
-                
-                is_identity = conn.execute(
-                    identity_check_query,
-                    {"schema": schema_name, "table": table_name, "column": column_name}
-                ).scalar() > 0
-                
-                # Make integer column auto-incrementing if it's not already (SQL Server syntax)
-                if not is_identity:
-                    logger.debug(f"Column {column_name} in table {schema_name}.{table_name} is integer but not auto-incrementing, making it auto-increment")
-                    try:
-                        # For SQL Server, we need to create a new identity column and replace the old one
-                        # This is complex as we need to:
-                        # 1. Create a temp column with identity
-                        # 2. Copy data
-                        # 3. Drop original column
-                        # 4. Rename temp column
-                        
-                        # Check if there's data in the table
-                        row_count_query = text(f"SELECT COUNT(*) FROM {schema_name}.{table_name}")
-                        row_count = conn.execute(row_count_query).scalar()
-                        
-                        if row_count > 0:
-                            logger.debug(f"Table {schema_name}.{table_name} has {row_count} rows. Cannot easily convert column {column_name} to identity. Continuing without making it auto-increment.")
-                        else:
-                            # If table is empty, drop and recreate the column as identity
-                            temp_column = f"{column_name}_temp"
-                            conn.execute(text(f"ALTER TABLE {schema_name}.{table_name} DROP COLUMN {column_name}"))
-                            conn.execute(text(f"ALTER TABLE {schema_name}.{table_name} ADD {column_name} INT IDENTITY(1,1) NOT NULL"))
-                            logger.debug(f"Recreated column {column_name} in table {schema_name}.{table_name} as identity column")
-                    except Exception as e:
-                        logger.error(f"Failed to set column {column_name} to auto-increment in table {schema_name}.{table_name}: {e}")
-                        logger.debug(f"Continuing with primary key creation despite auto-increment failure")
-                        raise e
-            
-            # Query to check if primary key already exists
-            pk_check_query = text(f"""
-                SELECT COUNT(*) 
-                FROM information_schema.table_constraints 
-                WHERE constraint_type = 'PRIMARY KEY' 
-                AND table_schema = :schema 
-                AND table_name = :table
-            """)
-            
-            pk_exists = conn.execute(
-                pk_check_query, 
-                {"schema": schema_name, "table": table_name}
-            ).scalar() > 0
-            
-            if pk_exists:
-                logger.debug(f"Primary key already exists on table {schema_name}.{table_name}, removing it first")
-                try:
-                    # First we need to get the constraint name
-                    constraint_query = text(f"""
-                        SELECT constraint_name
-                        FROM information_schema.table_constraints
-                        WHERE constraint_type = 'PRIMARY KEY'
-                        AND table_schema = :schema
-                        AND table_name = :table
-                    """)
-                    
-                    constraint_name = conn.execute(
-                        constraint_query,
-                        {"schema": schema_name, "table": table_name}
-                    ).scalar()
-                    
-                    # Drop the existing primary key
-                    conn.execute(text(f"ALTER TABLE {schema_name}.{table_name} DROP CONSTRAINT {constraint_name}"))
-                    logger.debug(f"Removed existing primary key constraint {constraint_name} from {schema_name}.{table_name}")
-                except Exception as e:
-                    logger.error(f"Failed to remove existing primary key on table {schema_name}.{table_name}: {e}")
-                    raise e
-            
-            # Add the primary key
+
             try:
-                conn.execute(text(f"ALTER TABLE {schema_name}.{table_name} ADD PRIMARY KEY ({column_name})"))
-                logger.debug(f"Added primary key on column {column_name} for table {schema_name}.{table_name}")
-            except Exception as e:
-                logger.error(f"Failed to add primary key on column {column_name} for table {schema_name}.{table_name}: {e}")
-                raise e
+                if pk_constraint_name:
+                    logger.debug(f"FIXING: {full_table_name} has a PK '{pk_constraint_name}' on the wrong column ('{pk_column_name}'). Dropping it.")
+                    conn.execute(text(f'ALTER TABLE {full_table_name} DROP CONSTRAINT "{pk_constraint_name}";'))
+
+                logger.debug(f"ACTION: Adding primary key to {full_table_name} on column '{id_column_name}'...")
+                
+                conn.execute(text(f'ALTER TABLE {full_table_name} ALTER COLUMN "{id_column_name}" INT NOT NULL;'))
+                
+                conn.execute(text(f'ALTER TABLE {full_table_name} ADD PRIMARY KEY ("{id_column_name}");'))
+                logger.debug(f"SUCCESS: Primary key for {full_table_name} is now set on '{id_column_name}'.")
+
+            except SQLAlchemyError:
+                logger.exception(f"FAILED: Could not set primary key for {full_table_name}. The 'id' column might contain NULLs or duplicate values. Skipping this table.")
 
 def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/one_to_many_relations.csv"):
     """
