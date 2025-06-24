@@ -101,7 +101,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         split_tables(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 5 completed in {phase_end - phase_start:.2f} seconds")
-    # Phase 7: Primary keys
+    # Phase 6: Primary keys
     if "phase6" in phases_to_skip:
         logger.info("Skipping Phase 6: Primary keys")
     else:
@@ -113,7 +113,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info(f"Phase 6 completed in {phase_end - phase_start:.2f} seconds")
 
     # Phase 7 Implement predecessor-successor
-    if "phase6" in phases_to_skip:
+    if "phase7" in phases_to_skip:
         logger.info("Skipping Phase 7: Implement predecessor-successor")
     else:
         phase_start = time.time()
