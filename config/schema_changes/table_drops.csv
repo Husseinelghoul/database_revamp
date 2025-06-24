@@ -12,7 +12,6 @@ both,Master_Developers
 both,Master_Project_Category
 both,Master_Sub_Owning_Entity
 both,Master_Sub_Status
-both,entity_category
 both,project_pricing_type
 both,INPUT_MONTHLY_PERFORMANCE_IMPORT
 both,INPUT_PHASE_FOUR_INFO_IMPORT
@@ -34,3 +33,5 @@ both,project_summary_bkp_10_june
 both,project_summary_bkp_11_june
 both,project_summary_bkp_11_06_2025_2
 both,Master_Design_Manager
+both,contract_vo_status_18_june_2025
+both,project_summary_bkp_11_june_2025

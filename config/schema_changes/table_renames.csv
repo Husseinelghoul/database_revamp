@@ -1,6 +1,6 @@
 old_table_name,new_table_name
 Authority_Approvals_Tracking,authority_approvals_tracking
-key_achievments_plan,key_achievments
+key_achievments_plan,key_achievements
 Master_Consultant,master_consultant
 Master_Contract_Type,master_contract_type
 Master_Contractor,master_contractor
@@ -41,3 +41,4 @@ SPA,project_milestone
 Sessions,sessions
 Project_Summary,project_summary
 Master_Milestone_Number,master_milestone_number
+key_risk,key_risks

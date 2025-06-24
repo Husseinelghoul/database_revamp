@@ -2,7 +2,7 @@ table_name,column_old_name,column_new_name
 app_user,ID,id
 Authority_Approvals_Tracking,ID,id
 commercial_status,budget (AED),budget
-commercial_status,commited_cost (AED),commited_cost
+commercial_status,commited_cost (AED),committed_cost
 commercial_status,vowd (AED),vowd
 commercial_status,paid_amount (AED),paid_amount
 commercial_status,ID,id
@@ -79,7 +79,7 @@ project_status,svp_avatar,delivery_project_manager_avatar
 project_summary,design_project_owner,design_executive_director
 project_summary,Sub_location,sub_location
 project_summary,dof_no,dof_number
-project_summary,manhour,man_hour
+project_summary,manhour,man_hours
 project_summary,Overall_Planned_Finish_Date,overall_planned_finish_date
 project_summary,Overall_Forecasted_Finish_Date,overall_forecasted_finish_date
 project_summary,isExecutiveProject,is_executive_project
@@ -110,3 +110,7 @@ SPA,SPA_Column_4,milestone_status
 SPA,SPA_sorting_order,milestone_sorting_order
 project_summary,TIP_last_submission_date,tip_last_submission_date
 project_summary,EOT_last_submission_date,eot_last_submission_date
+project_kpi,KPI_sorting_order,kpi_sorting_order
+project_summary,lattitude,latitude
+project_sustainability,reinvented_echonomy_percentage,reinvented_economy_percentage
+project_sustainability,reinvented_echonomy_value,reinvented_economy_value

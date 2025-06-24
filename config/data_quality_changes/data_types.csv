@@ -5,7 +5,7 @@ authority_approvals_tracking,enoc_forecast_date,varchar,date
 authority_approvals_tracking,last_updated,varchar,datetime
 commercial_status,period,varchar,date
 commercial_status,budget,varchar,float
-commercial_status,commited_cost,varchar,float
+commercial_status,committed_cost,varchar,float
 commercial_status,vowd,varchar,float
 commercial_status,paid_amount,varchar,float
 commercial_status,last_updated,varchar,datetime
@@ -19,11 +19,11 @@ contract_vo_status,period,varchar,date
 contract_vo_status,approved_vo_value,varchar,float
 contract_vo_status,pvr_value,varchar,float
 contract_vo_status,last_updated,varchar,datetime
-key_achievments,end_date,varchar,date
-key_achievments,last_updated,varchar,datetime
-key_risk,period,varchar,date
-key_risk,forecasted_closure_date,varchar,date
-key_risk,last_updated,varchar,datetime
+key_achievements,end_date,varchar,date
+key_achievements,last_updated,varchar,datetime
+key_risks,period,varchar,date
+key_risks,forecasted_closure_date,varchar,date
+key_risks,last_updated,varchar,datetime
 master_consultant,icv_percentage,varchar,float
 master_contractor,icv_percentage,varchar,float
 master_contractor,worker_welfare_compliance_percentage,varchar,float
@@ -32,7 +32,7 @@ project_kpi,period,varchar,date
 project_kpi,kpi_value,varchar,float
 project_kpi,last_updated,varchar,datetime
 project_kpi,is_executive_kpi,varchar,bit
-project_kpi,KPI_sorting_order,varchar,int
+project_kpi,kpi_sorting_order,varchar,int
 project_management,time_elapsed_percentage,varchar,float
 project_management,spi,varchar,float
 project_management,project_management_var,varchar,int
@@ -99,7 +99,7 @@ project_summary,planned_finish_percentage,varchar,float
 project_summary,period,varchar,date
 project_summary,actual_finish_percentage,varchar,float
 project_summary,incidents,varchar,int
-project_summary,lattitude,varchar,float
+project_summary,latitude,varchar,float
 project_summary,longitude,varchar,float
 project_summary,overall_planned_finish_date,varchar,date
 project_summary,overall_forecasted_finish_date,varchar,date
@@ -124,7 +124,7 @@ project_summary,potential_budget_uplift_value,varchar,float
 project_summary,scope_change_approval_date,varchar,date
 project_summary,scope_change_submission_date,varchar,date
 project_sustainability,period,varchar,date
-project_sustainability,reinvented_echonomy_value,varchar,float
+project_sustainability,reinvented_economy_value,varchar,float
 project_sustainability,pearl_rating_percentage,varchar,float
 project_sustainability,recycled_material_percentage,varchar,float
 project_sustainability,last_updated,varchar,datetime
@@ -141,3 +141,13 @@ contract_vo_status,forecasted_contract_value,varchar,float
 community_facility_brief,updated_by,varchar,varchar
 project_milestone,milestone_sorting_order,varchar,int
 project_summary,submitted_eot_date,varchar,date
+commercial_status,construction_budget,varchar,bigint
+project_sustainability,waste_recycled_percentage,varchar,float
+project_summary,lti,varchar,bigint
+project_sustainability,reinvented_economy_percentage,varchar,float
+project_sustainability,workers_welfare_compliance_percentage,varchar,float
+commercial_status,design_budget,varchar,bigint
+commercial_status,supervision_budget,varchar,bigint
+commercial_status,contingency,varchar,bigint
+commercial_status,management_fees,varchar,bigint
+key_achievements,period,varchar,date
