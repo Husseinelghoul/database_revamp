@@ -3,10 +3,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from sqlalchemy import create_engine, text
 
+from config.constants import PROCESSING_CHUNK_SIZE
 from utils.logger import setup_logger
 from utils.utils import generate_constraint_name, load_schema_changes
 
 logger = setup_logger()
+
 def add_primary_keys(target_db_url, schema_name):
     """
     Assertively ensures that for every table with an 'id' column, 'id' is the primary key,
@@ -202,142 +204,106 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
 
 def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/many_to_many_relations.csv"):
     """
-    Implement many-to-many relations based on CSV configuration.
-    1. Creates associative tables if they don't exist.
-    2. Populates associative tables.
-    3. Logs unmatched values.
-    
-    CSV: source_table, source_id_column, source_multi_column, lookup_table, 
-         lookup_name_column, lookup_id_column, associative_table, 
-         assoc_source_column, assoc_lookup_column
+    A robust, memory-efficient implementation that creates many-to-many relations
+    using batch processing for the source table to handle huge datasets.
     """
+    # This defines how many rows to process from the source table at a time.
+    
     try:
-        relations_df = load_schema_changes(csv_path) # Ensure this function is defined
+        relations_df = pd.read_csv(csv_path)
     except Exception as e:
-        logger.error(f"Could not load many-to-many relations from {csv_path}. Aborting. Error: {e}")
+        logger.error(f"Could not load relations from {csv_path}. Aborting. Error: {e}")
         return
 
     engine = create_engine(target_db_url)
     
-    with engine.begin() as conn:
-        for _, row in relations_df.iterrows():
-            source_table = str(row["source_table"]).strip()
-            source_id_column = str(row["source_id_column"]).strip()
-            source_multi_column = str(row["source_multi_column"]).strip()
-            lookup_table = str(row["lookup_table"]).strip()
-            lookup_name_column = str(row["lookup_name_column"]).strip()
-            lookup_id_column = str(row["lookup_id_column"]).strip()
-            associative_table = str(row["associative_table"]).strip()
-            assoc_source_column = str(row["assoc_source_column"]).strip() 
-            assoc_lookup_column = str(row["assoc_lookup_column"]).strip()
-            seperator = str(row["seperator"]).strip()
+    for _, row in relations_df.iterrows():
+        # Read all config from the row
+        source_table, source_id_col, source_multi_col = row["source_table"], row["source_id_column"], row["source_multi_column"]
+        lookup_table, lookup_name_col, lookup_id_col = row["lookup_table"], row["lookup_name_column"], row["lookup_id_column"]
+        assoc_table, assoc_source_col, assoc_lookup_col = row["associative_table"], row["assoc_source_column"], row["assoc_lookup_column"]
+        separator = row["seperator"]
 
-            logger.debug(f"Processing many-to-many: {schema_name}.{source_table} <-> {schema_name}.{lookup_table} via {schema_name}.{associative_table}")
+        full_source_name = f'"{schema_name}"."{source_table}"'
+        full_lookup_name = f'"{schema_name}"."{lookup_table}"'
+        full_assoc_name = f'"{schema_name}"."{assoc_table}"'
+        logger.debug(f"Processing relation for {full_assoc_name}...")
 
-            try:
-                # Generate constraint names
-                fk_assoc_to_source_name = generate_constraint_name(
-                    prefix="FK",
-                    name_elements=[associative_table, source_table, assoc_source_column]
-                )
-                fk_assoc_to_lookup_name = generate_constraint_name(
-                    prefix="FK",
-                    name_elements=[associative_table, lookup_table, assoc_lookup_column]
-                )
-                uq_constraint_name = generate_constraint_name(
-                    prefix="UQ",
-                    name_elements=[associative_table, assoc_source_column, assoc_lookup_column]
-                )
-                
-                # Create associative table if it doesn't exist
-                create_table_query = f"""
-                IF OBJECT_ID('{schema_name}.{associative_table}', 'U') IS NULL
-                BEGIN
-                    CREATE TABLE {schema_name}.{associative_table} (
-                        id INT IDENTITY(1,1) PRIMARY KEY, 
-                        {assoc_source_column} INT NOT NULL,
-                        {assoc_lookup_column} INT NOT NULL,
-                        CONSTRAINT {fk_assoc_to_source_name}
-                            FOREIGN KEY ({assoc_source_column}) REFERENCES {schema_name}.{source_table}({source_id_column})
-                            ON DELETE NO ACTION ON UPDATE NO ACTION, 
-                        CONSTRAINT {fk_assoc_to_lookup_name}
-                            FOREIGN KEY ({assoc_lookup_column}) REFERENCES {schema_name}.{lookup_table}({lookup_id_column})
-                            ON DELETE NO ACTION ON UPDATE NO ACTION,
-                        CONSTRAINT {uq_constraint_name} 
-                            UNIQUE ({assoc_source_column}, {assoc_lookup_column}) 
-                    );
-                    PRINT 'Created associative table {schema_name}.{associative_table}';
-                END
-                ELSE
-                BEGIN
-                    PRINT 'Associative table {schema_name}.{associative_table} already exists.';
-                END
+        try:
+            # === Step 1: Pre-load the entire lookup table into an in-memory dictionary ===
+            # This is fast and assumes the lookup table itself is not billions of rows.
+            logger.debug(f"Caching lookup table: {full_lookup_name}...")
+            lookup_sql = f'SELECT "{lookup_id_col}", "{lookup_name_col}" FROM {full_lookup_name}'
+            lookup_df = pd.read_sql(lookup_sql, engine)
+            # Create a dictionary for instant lookups: {lookup_name: lookup_id}
+            lookup_dict = pd.Series(lookup_df[lookup_id_col].values, index=lookup_df[lookup_name_col].str.strip()).to_dict()
+            logger.debug(f"Cached {len(lookup_dict)} lookup values.")
+
+            # === Step 2: Setup a fresh, empty associative table without constraints ===
+            # Constraints will be added at the end for much better insert performance.
+            with engine.begin() as conn:
+                logger.debug(f"Recreating empty target table: {full_assoc_name}")
+                conn.execute(text(f'DROP TABLE IF EXISTS {full_assoc_name};'))
+                create_sql = f"""
+                CREATE TABLE {full_assoc_name} (
+                    "{assoc_source_col}" INT,
+                    "{assoc_lookup_col}" INT
+                );
                 """
-                conn.execute(text(create_table_query))
-                logger.debug(f"Ensured associative table {schema_name}.{associative_table} exists.")
-                
-                # Get all source rows with their multi-values to process
-                source_data_query = f"""
-                SELECT {source_id_column}, {source_multi_column}
-                FROM {schema_name}.{source_table}
-                WHERE {source_multi_column} IS NOT NULL AND LTRIM(RTRIM(CAST({source_multi_column} AS VARCHAR(MAX)))) <> '';
-                """
-                source_df = pd.read_sql_query(text(source_data_query), conn)
-                
-                # Get all lookup values for efficient mapping
-                lookup_data_query = f"""
-                SELECT {lookup_id_column}, {lookup_name_column}
-                FROM {schema_name}.{lookup_table};
-                """
-                lookup_df = pd.read_sql_query(text(lookup_data_query), conn)
-                # Create a dictionary for quick lookups: {lookup_name: lookup_id}
-                lookup_dict = pd.Series(lookup_df[lookup_id_column].values, index=lookup_df[lookup_name_column].str.strip()).to_dict()
-                
-                unmatched_values_log = {} # To store source_id and the value that didn't match
+                conn.execute(text(create_sql))
 
-                for _, src_row in source_df.iterrows():
-                    source_id_val = src_row[source_id_column]
-                    multi_value_str = src_row[source_multi_column]
-                    
-                    if pd.isna(multi_value_str) or not isinstance(multi_value_str, str):
-                        continue
-
-                    individual_values = [v.strip() for v in multi_value_str.split(seperator) if v.strip()]
-                    
-                    for value_to_lookup in individual_values:
-                        # Normalize value_to_lookup if lookup_dict keys are normalized (e.g. .lower())
-                        matched_lookup_id = lookup_dict.get(value_to_lookup) # Case-sensitive match by default
-                        
-                        if matched_lookup_id is not None:
-                            # Insert into associative table, handling potential duplicates with IF NOT EXISTS
-                            insert_sql = f"""
-                            IF NOT EXISTS (
-                                SELECT 1 FROM {schema_name}.{associative_table} 
-                                WHERE {assoc_source_column} = {source_id_val} 
-                                AND {assoc_lookup_column} = {matched_lookup_id}
-                            )
-                            BEGIN
-                                INSERT INTO {schema_name}.{associative_table} ({assoc_source_column}, {assoc_lookup_column}) 
-                                VALUES ({source_id_val}, {matched_lookup_id});
-                            END
-                            """
-                            try:
-                                conn.execute(text(insert_sql))
-                            except Exception as insert_ex: # Catch specific insert errors if needed
-                                logger.error(f"Error inserting ({source_id_val}, {matched_lookup_id}) into {associative_table}: {insert_ex}")
-                        else:
-                            if source_id_val not in unmatched_values_log:
-                                unmatched_values_log[source_id_val] = []
-                            if value_to_lookup not in unmatched_values_log[source_id_val]: # Avoid duplicate logging for same unmatched value per source_id
-                                unmatched_values_log[source_id_val].append(value_to_lookup)
+            # === Step 3: Stream the HUGE source table in chunks and process each one ===
+            logger.debug(f"Streaming source table {full_source_name} in chunks of {PROCESSING_CHUNK_SIZE}...")
+            source_sql = f'SELECT "{source_id_col}", "{source_multi_col}" FROM {full_source_name} WHERE "{source_multi_col}" IS NOT NULL'
+            
+            total_rows_processed = 0
+            for source_chunk_df in pd.read_sql(source_sql, engine, chunksize=PROCESSING_CHUNK_SIZE):
                 
-                logger.debug(f"Processed population of {schema_name}.{associative_table}.")
+                total_rows_processed += len(source_chunk_df)
+                logger.debug(f"  Processing source rows chunk... (up to row {total_rows_processed})")
 
-                if unmatched_values_log:
-                    logger.debug(f"Found unmatched values during {schema_name}.{associative_table} population:")
-                    for src_id, vals in unmatched_values_log.items():
-                        logger.debug(f"  Source ID {src_id} (from {source_table}) had unmatched lookup values: {', '.join(vals)}")
+                # Explode the current chunk
+                source_chunk_df[source_multi_col] = source_chunk_df[source_multi_col].str.split(separator)
+                exploded_df = source_chunk_df.explode(source_multi_col)
+                exploded_df[source_multi_col] = exploded_df[source_multi_col].str.strip()
                 
-            except Exception as e:
-                logger.error(f"Failed for {schema_name}.{source_table} ({source_multi_column}) -> {schema_name}.{associative_table}: {e}")
-                raise
+                # Use the fast in-memory dictionary to map names to IDs
+                exploded_df[assoc_lookup_col] = exploded_df[source_multi_col].map(lookup_dict)
+                
+                # Filter out any names that didn't have a match in the lookup dict
+                final_chunk_df = exploded_df.dropna(subset=[assoc_lookup_col])
+                
+                # Prepare the final DataFrame for insertion
+                final_chunk_df = final_chunk_df[[source_id_col, assoc_lookup_col]]
+                final_chunk_df.columns = [assoc_source_col, assoc_lookup_col]
+                
+                # Append the processed chunk to the database
+                if not final_chunk_df.empty:
+                    final_chunk_df.to_sql(name=assoc_table, con=engine, schema=schema_name, if_exists='append', index=False)
+            
+            # === Step 4: Finalize the table (remove duplicates and add constraints) ===
+            logger.debug(f"Finalizing table {full_assoc_name} by removing duplicates and adding constraints...")
+            with engine.begin() as conn:
+                # Create a temporary table with distinct rows
+                temp_table_name = f"#{assoc_table}_temp_distinct"
+                conn.execute(text(f"SELECT DISTINCT * INTO {temp_table_name} FROM {full_assoc_name};"))
+                # Truncate the original table and insert the distinct rows back
+                conn.execute(text(f"TRUNCATE TABLE {full_assoc_name};"))
+                conn.execute(text(f"INSERT INTO {full_assoc_name} SELECT * FROM {temp_table_name};"))
+                conn.execute(text(f"DROP TABLE {temp_table_name};"))
+
+                # Now that the data is clean and unique, add the keys
+                pk_name = f"PK_{assoc_table}"
+                fk_source_name = f"FK_{assoc_table}_{source_table}"
+                fk_lookup_name = f"FK_{assoc_table}_{lookup_table}"
+
+                conn.execute(text(f'ALTER TABLE {full_assoc_name} ALTER COLUMN "{assoc_source_col}" INT NOT NULL;'))
+                conn.execute(text(f'ALTER TABLE {full_assoc_name} ALTER COLUMN "{assoc_lookup_col}" INT NOT NULL;'))
+                conn.execute(text(f'ALTER TABLE {full_assoc_name} ADD CONSTRAINT "{pk_name}" PRIMARY KEY ("{assoc_source_col}", "{assoc_lookup_col}");'))
+                conn.execute(text(f'ALTER TABLE {full_assoc_name} ADD CONSTRAINT "{fk_source_name}" FOREIGN KEY ("{assoc_source_col}") REFERENCES "{schema_name}"."{source_table}"("{source_id_col}");'))
+                conn.execute(text(f'ALTER TABLE {full_assoc_name} ADD CONSTRAINT "{fk_lookup_name}" FOREIGN KEY ("{assoc_lookup_col}") REFERENCES "{schema_name}"."{lookup_table}"("{lookup_id_col}");'))
+
+            logger.debug(f"Successfully created and populated {full_assoc_name} with {total_rows_processed} source rows processed.")
+
+        except Exception as e:
+            logger.exception(f"An error occurred while processing the relation for {source_table}")
