@@ -75,15 +75,13 @@ def split_columns(target_db_url, schema_name, csv_path="config/schema_changes/co
 def split_tables(target_db_url, schema_name, csv_path="config/schema_changes/table_splits.csv"):
     """
     A robust, memory-efficient version that splits tables using batch processing
-    and a generic schema for the target table.
+    and removes duplicates after population.
     """
-    # This defines how many rows to process from the source table at a time.
-    CHUNK_SIZE = PROCESSING_CHUNK_SIZE
+    CHUNK_SIZE = 10000
     
     try:
         splits_df = pd.read_csv(csv_path)
     except FileNotFoundError:
-        # A critical failure like a missing config should remain an error.
         logger.error(f"Configuration file not found at: {csv_path}")
         return
         
@@ -103,39 +101,30 @@ def split_tables(target_db_url, schema_name, csv_path="config/schema_changes/tab
         logger.debug(f"Processing split from {full_source_name} to {full_target_name}...")
 
         try:
-            # === Step 1: One-time setup of the target table with a generic schema ===
+            # === Step 1: Setup of the target table ===
             with engine.begin() as conn:
                 logger.debug(f"Setting up fresh target table {full_target_name}...")
-                
-                # Drop the target table if it exists
                 conn.execute(text(f'DROP TABLE IF EXISTS {full_target_name};'))
                 
-                # Create a generic definition for all columns as NVARCHAR(MAX)
                 col_definitions_str = ', '.join([f'"{col}" NVARCHAR(MAX) NULL' for col in all_source_columns])
-
-                # Create the table with the simplified, generic schema
+                # We create the table without a PK first to allow temporary duplicates
                 create_sql = f"""
                     CREATE TABLE {full_target_name} (
-                        id INT IDENTITY(1,1) PRIMARY KEY,
                         {col_definitions_str}
                     );
                 """
                 conn.execute(text(create_sql))
             
-            # === Step 2: Process source table in streaming chunks ===
+            # === Step 2: Process source table in chunks and insert (with potential duplicates) ===
             logger.debug(f"Reading source table in chunks of {CHUNK_SIZE} rows...")
             select_cols_str = ', '.join([f'"{col}"' for col in all_source_columns])
             sql_query = f'SELECT {select_cols_str} FROM {full_source_name}'
             
             total_rows_processed = 0
-            # pd.read_sql_query with chunksize returns an iterator
             for source_chunk_df in pd.read_sql_query(sql_query, engine, chunksize=CHUNK_SIZE):
-                
-                chunk_start = total_rows_processed + 1
                 total_rows_processed += len(source_chunk_df)
-                logger.debug(f"  Processing source rows {chunk_start} to {total_rows_processed}...")
+                logger.debug(f"  Processing source rows up to {total_rows_processed}...")
 
-                # Normalize the current chunk
                 normalized_rows = []
                 for _, source_row in source_chunk_df.iterrows():
                     split_values_lists = [
@@ -148,21 +137,31 @@ def split_tables(target_db_url, schema_name, csv_path="config/schema_changes/tab
                         new_row.update(dict(zip(columns_to_split, combination)))
                         normalized_rows.append(new_row)
                 
-                # If the chunk generated data, append it to the target table
                 if normalized_rows:
                     normalized_df = pd.DataFrame(normalized_rows)
-                    
-                    # Use to_sql with if_exists='append' to add the new rows
-                    normalized_df.to_sql(
-                        name=target_table_name,
-                        con=engine,
-                        schema=schema_name,
-                        if_exists='append',
-                        index=False
-                    )
+                    normalized_df.to_sql(name=target_table_name, con=engine, schema=schema_name, if_exists='append', index=False)
             
+            # === Step 3: Remove duplicates and add primary key in the database ===
+            logger.debug(f"Removing duplicates and finalizing table {full_target_name}...")
+            with engine.begin() as conn:
+                # Use a Common Table Expression (CTE) with ROW_NUMBER to find and delete duplicates
+                deduplicate_sql = f"""
+                    WITH CTE AS (
+                        SELECT
+                            *,
+                            ROW_NUMBER() OVER(PARTITION BY {select_cols_str} ORDER BY (SELECT NULL)) as rn
+                        FROM {full_target_name}
+                    )
+                    DELETE FROM CTE WHERE rn > 1;
+                """
+                result = conn.execute(text(deduplicate_sql))
+                logger.debug(f"Removed {result.rowcount} duplicate rows.")
+
+                # Now that the data is unique, add the identity and primary key column
+                conn.execute(text(f'ALTER TABLE {full_target_name} ADD id INT IDENTITY(1,1) NOT NULL PRIMARY KEY;'))
+                logger.debug(f"Added primary key to {full_target_name}.")
+
             logger.debug(f"Successfully populated {full_target_name}. Total source rows processed: {total_rows_processed}.")
 
         except Exception as e:
-            # Using logger.exception provides a full stack trace for better debugging, logged at the ERROR level.
             logger.exception(f"Failed to process split for table '{source_table_name}'.")
