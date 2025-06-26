@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.pool import QueuePool
+from config.constants import MIGRATION_CHUNK_SIZE
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -19,7 +20,7 @@ def migrate_table_optimized(
     source_schema,
     target_schema,
     project_names=None,
-    chunksize=10000, # A larger, single chunksize is better now
+    chunksize=MIGRATION_CHUNK_SIZE, # A larger, single chunksize is better now
 ):
     """
     An optimized version of migrate_table that uses a single transaction
