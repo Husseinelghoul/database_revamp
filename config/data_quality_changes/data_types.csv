@@ -41,7 +41,7 @@ project_management,delay_this_period,varchar,int
 project_management,cumulative_delay,varchar,int
 project_management,manpower_planned,varchar,int
 project_management,manpower_actual,varchar,int
-project_management,manhours,varchar,int
+project_management,man_hours,varchar,int
 project_management,incidents,varchar,int
 project_management,fatalities,varchar,int
 project_management,lti_ratio,varchar,int

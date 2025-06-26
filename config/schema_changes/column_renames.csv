@@ -114,3 +114,4 @@ project_kpi,KPI_sorting_order,kpi_sorting_order
 project_summary,lattitude,latitude
 project_sustainability,reinvented_echonomy_percentage,reinvented_economy_percentage
 project_sustainability,reinvented_echonomy_value,reinvented_economy_value
+project_management,manhours,man_hours
