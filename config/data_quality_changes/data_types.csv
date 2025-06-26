@@ -151,3 +151,5 @@ commercial_status,supervision_budget,varchar,bigint
 commercial_status,contingency,varchar,bigint
 commercial_status,management_fees,varchar,bigint
 key_achievements,period,varchar,date
+lookup_project_to_phase,period,nvarchar,date
+lookup_project_to_project_phase_category,period,nvarchar,date
