@@ -6,6 +6,7 @@ from db.data_integrity import (add_primary_keys,
                                implement_one_to_many_relations)
 from db.data_migrator import migrate_data
 from db.data_quality import apply_constraints, change_data_types
+from db.database_optimization import create_project_period_indexes
 from db.drop_operations import drop_columns, drop_tables
 from db.predecessor_successor import implement_predecessor_successor
 from db.rename_operations import rename_columns, rename_tables
@@ -151,5 +152,16 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         # apply_constraints(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 9 completed in {phase_end - phase_start:.2f} seconds")
+
+    # Phase 10: Implementing Indexes
+    if "phase10" in phases_to_skip:
+        logger.info("Skipping Phase 10: Implementing Indexes")
+    else:
+        phase_start = time.time()
+        logger.info(f"Phase 10: Implementing Indexes")
+        create_project_period_indexes(target_db_url, target_schema)
+        phase_end = time.time()
+        logger.info(f"Phase 10 completed in {phase_end - phase_start:.2f} seconds")
+        
     end_time = time.time()
     logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds for {application}")
