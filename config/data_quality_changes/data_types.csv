@@ -153,3 +153,5 @@ commercial_status,management_fees,varchar,bigint
 key_achievements,period,varchar,date
 lookup_project_to_phase,period,nvarchar,date
 lookup_project_to_project_phase_category,period,nvarchar,date
+potential_budget_uplift_scope,period,varchar,date
+entity_key_achievements,period,varchar,date
