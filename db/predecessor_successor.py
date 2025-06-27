@@ -1,7 +1,9 @@
-from utils.logger import setup_logger
+import json
+
 import pandas as pd
 from sqlalchemy import create_engine, text
-import json
+
+from utils.logger import setup_logger
 
 # Assume logger is configured
 logger = setup_logger()

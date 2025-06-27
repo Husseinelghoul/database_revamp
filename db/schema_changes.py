@@ -3,7 +3,6 @@ from itertools import product
 import pandas as pd
 from sqlalchemy import create_engine, text
 
-from config.constants import PROCESSING_CHUNK_SIZE
 from utils.logger import setup_logger
 from utils.utils import load_schema_changes
 
