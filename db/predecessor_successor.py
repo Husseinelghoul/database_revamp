@@ -1,391 +1,180 @@
-import json
-
+from utils.logger import setup_logger
 import pandas as pd
 from sqlalchemy import create_engine, text
+import json
 
-from utils.logger import setup_logger
-
+# Assume logger is configured
 logger = setup_logger()
 
-def create_project_status_mapping(target_db_url, schema_name):
+def create_mapping_table_no_constraints(conn, schema_name):
     """
-    Create mapping table for project status predecessor/successor relationships.
-    Processes data family by family to handle large tables efficiently.
+    Creates the mapping table WITHOUT keys or constraints for fast inserts.
+    """
+    table_name = "mapping_project_status_predecessor_successor"
+    full_table_name = f'"{schema_name}"."{table_name}"'
     
-    Steps:
-    1. Check table structure and get available columns
-    2. Get unique project names
-    3. For each project, get all periods
-    4. Process each family (project_name + period) separately
-    5. Create slugs and resolve relationships
-    6. Insert mapping records in batches
-    """
-    
-    engine = create_engine(target_db_url)
-    
-    try:
-        with engine.begin() as conn:
-            # Step 1: Check table structure and get available columns
-            logger.debug("Checking table structure...")
-            available_columns = get_table_columns(conn, schema_name)
-            
-            # Step 2: Create the mapping table first
-            logger.debug("Creating mapping table...")
-            create_mapping_table(conn, schema_name)
-            
-            # Step 3: Get unique project names
-            logger.debug("Getting unique project names...")
-            
-            projects_query = text(f"""
-                SELECT DISTINCT project_name
-                FROM {schema_name}.project_status
-                WHERE project_name IS NOT NULL
-                ORDER BY project_name
-            """)
-            
-            projects_df = pd.read_sql(projects_query, conn)
-            project_names = projects_df['project_name'].tolist()
-            
-            logger.debug(f"Found {len(project_names)} unique projects to process")
-            
-            total_mappings = 0
-            
-            # Step 4: Process each project
-            for i, project_name in enumerate(project_names, 1):
-                logger.debug(f"Processing project {i}/{len(project_names)}: '{project_name}'")
-                
-                try:
-                    # Get all periods for this project
-                    periods_query = text(f"""
-                        SELECT DISTINCT period
-                        FROM {schema_name}.project_status
-                        WHERE project_name = :project_name
-                        AND period IS NOT NULL
-                        ORDER BY period
-                    """)
-                    
-                    periods_df = pd.read_sql(periods_query, conn, params={'project_name': project_name})
-                    periods = periods_df['period'].tolist()
-                    
-                    logger.debug(f"  Found {len(periods)} periods for project '{project_name}'")
-                    
-                    # Step 5: Process each family (project + period)
-                    for period in periods:
-                        logger.debug(f"  Processing family: '{project_name}' - {period}")
-                        
-                        family_mappings = process_family(conn, schema_name, project_name, period, available_columns)
-                        
-                        if family_mappings:
-                            # Insert mappings for this family
-                            insert_mappings_batch(conn, schema_name, family_mappings)
-                            total_mappings += len(family_mappings)
-                            logger.debug(f"    Inserted {len(family_mappings)} mappings for this family")
-                        
-                except Exception as e:
-                    logger.debug(f"Error processing project '{project_name}': {e}")
-                    # Continue with next project instead of failing completely
-                    continue
-            
-            logger.debug(f"Successfully processed all projects. Total mappings created: {total_mappings}")
-                
-    except Exception as e:
-        logger.error(f"Error creating project status mapping: {e}")
-        raise
-
-
-def get_table_columns(conn, schema_name):
-    """
-    Get the available columns in the project_status table.
-    """
-    columns_query = text(f"""
-        SELECT COLUMN_NAME
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = :schema_name 
-        AND TABLE_NAME = 'project_status'
-        ORDER BY ORDINAL_POSITION
-    """)
-    
-    columns_df = pd.read_sql(columns_query, conn, params={'schema_name': schema_name})
-    return columns_df['COLUMN_NAME'].tolist()
-
-
-def process_family(conn, schema_name, project_name, period, available_columns):
-    """
-    Process a single family (project_name + period) and return mapping records.
-    """
-    try:
-        # Build the SELECT clause based on available columns
-        slug_columns = ['project_phase_category', 'phase', 'stage_status', 'sub_stage']
-        available_slug_columns = [col for col in slug_columns if col in available_columns]
-        
-        if not available_slug_columns:
-            logger.warning(f"No slug columns found for family {project_name}, {period}")
-            return []
-        
-        # Build the query dynamically
-        select_columns = ['id'] + available_slug_columns + ['predecessor', 'successor']
-        select_clause = ', '.join(select_columns)
-        
-        family_query = text(f"""
-            SELECT {select_clause}
-            FROM {schema_name}.project_status
-            WHERE project_name = :project_name 
-            AND period = :period
-            ORDER BY id
-        """)
-        
-        family_df = pd.read_sql(family_query, conn, params={
-            'project_name': project_name, 
-            'period': period
-        })
-        
-        if family_df.empty:
-            return []
-        
-        logger.debug(f"    Processing {len(family_df)} records in family")
-        
-        # Create slug lookup for this family
-        slug_to_id = {}
-        
-        for idx, row in family_df.iterrows():
-            # Build slug from available non-null columns
-            slug_parts = []
-            
-            for col in available_slug_columns:
-                value = row[col]
-                if pd.notna(value) and str(value).strip():
-                    slug_parts.append(str(value).strip())
-            
-            slug = '$#'.join(slug_parts)
-            
-            if slug in slug_to_id:
-                raise ValueError(f"Duplicate slug '{slug}' found in family {project_name}, {period}")
-            
-            slug_to_id[slug] = row['id']
-        
-        # Process relationships for each row
-        mapping_records = []
-        
-        for idx, row in family_df.iterrows():
-            current_id = row['id']
-            
-            # Process predecessors
-            if 'predecessor' in family_df.columns and pd.notna(row['predecessor']) and str(row['predecessor']).strip():
-                predecessor_slugs = parse_relationship_column(row['predecessor'])
-                
-                # Skip if empty array or no valid slugs
-                if predecessor_slugs:
-                    for slug in predecessor_slugs:
-                        if slug not in slug_to_id:
-                            raise ValueError(f"Predecessor slug '{slug}' not found in family {project_name}, {period}")
-                        
-                        mapping_records.append({
-                            'project_status_id': current_id,
-                            'destination_project_status_id': slug_to_id[slug],
-                            'association_type': 'predecessor'
-                        })
-            
-            # Process successors
-            if 'successor' in family_df.columns and pd.notna(row['successor']) and str(row['successor']).strip():
-                successor_slugs = parse_relationship_column(row['successor'])
-                
-                # Skip if empty array or no valid slugs
-                if successor_slugs:
-                    for slug in successor_slugs:
-                        if slug not in slug_to_id:
-                            raise ValueError(f"Successor slug '{slug}' not found in family {project_name}, {period}")
-                        
-                        mapping_records.append({
-                            'project_status_id': current_id,
-                            'destination_project_status_id': slug_to_id[slug],
-                            'association_type': 'successor'
-                        })
-        
-        return mapping_records
-        
-    except Exception as e:
-        logger.error(f"Error processing family {project_name}, {period}: {e}")
-        raise
-
-
-def create_mapping_table(conn, schema_name):
-    """
-    Create the mapping table with proper constraints.
-    """
-    # Drop table if exists and recreate
+    logger.debug(f"Creating fresh mapping table {full_table_name} without constraints...")
+    conn.execute(text(f'DROP TABLE IF EXISTS {full_table_name};'))
     conn.execute(text(f"""
-        IF OBJECT_ID('{schema_name}.mapping_project_status_predecessor_successor', 'U') IS NOT NULL
-            DROP TABLE {schema_name}.mapping_project_status_predecessor_successor
+        CREATE TABLE {full_table_name} (
+            project_status_id INT,
+            destination_project_status_id INT,
+            association_type VARCHAR(20)
+        );
     """))
+    logger.debug("Plain mapping table created successfully.")
+
+def add_constraints_to_mapping_table(conn, schema_name):
+    """
+    Adds all keys and constraints to the mapping table after data has been loaded.
+    This is much more performant than inserting into a constrained table.
+    """
+    table_name = "mapping_project_status_predecessor_successor"
+    source_table_name = "project_status"
+    full_table_name = f'"{schema_name}"."{table_name}"'
+
+    logger.debug("Finalizing mapping table: Removing duplicates and adding constraints...")
     
-    # Create the mapping table
-    conn.execute(text(f"""
-        CREATE TABLE {schema_name}.mapping_project_status_predecessor_successor (
-            project_status_id INT NOT NULL,
-            destination_project_status_id INT NOT NULL,
-            association_type VARCHAR(20) NOT NULL CHECK (association_type IN ('predecessor', 'successor')),
-            CONSTRAINT FK_mapping_project_status_source 
-                FOREIGN KEY (project_status_id) REFERENCES {schema_name}.project_status(id),
-            CONSTRAINT FK_mapping_project_status_destination 
-                FOREIGN KEY (destination_project_status_id) REFERENCES {schema_name}.project_status(id),
-            CONSTRAINT PK_mapping_project_status 
-                PRIMARY KEY (project_status_id, destination_project_status_id, association_type)
+    # Step 1: Remove any potential duplicates that were inserted across batches
+    deduplicate_sql = f"""
+        ;WITH CTE AS (
+            SELECT *, ROW_NUMBER() OVER(PARTITION BY project_status_id, destination_project_status_id, association_type ORDER BY (SELECT NULL)) as rn
+            FROM {full_table_name}
         )
-    """))
-    
-    logger.debug("Mapping table created successfully")
-
-
-def insert_mappings_batch(conn, schema_name, mapping_records):
+        DELETE FROM CTE WHERE rn > 1;
     """
-    Insert mapping records in batches for better performance.
-    """
-    if not mapping_records:
-        return
-    
-    batch_size = 1000
-    
-    for i in range(0, len(mapping_records), batch_size):
-        batch = mapping_records[i:i+batch_size]
-        
-        # Prepare batch insert
-        values_list = []
-        for record in batch:
-            values_list.append(f"({record['project_status_id']}, {record['destination_project_status_id']}, '{record['association_type']}')")
-        
-        values_str = ',\n'.join(values_list)
-        
-        insert_query = text(f"""
-            INSERT INTO {schema_name}.mapping_project_status_predecessor_successor 
-            (project_status_id, destination_project_status_id, association_type)
-            VALUES {values_str}
-        """)
-        
-        conn.execute(insert_query)
+    result = conn.execute(text(deduplicate_sql))
+    logger.debug(f"Removed {result.rowcount} duplicate mapping rows.")
 
-
-def parse_relationship_column(column_value):
-    """
-    Parse predecessor/successor column value to extract slugs.
-    
-    Input format: '["phase 3$#Initiation", "another$#slug"]' or '[]' (empty)
-    Output: List of slugs (empty list if no valid slugs found)
-    """
-    if pd.isna(column_value) or not str(column_value).strip():
-        return []
-    
+    # Step 2: Add all constraints at once
     try:
-        # Clean the string - remove extra whitespace
-        clean_value = str(column_value).strip()
+        conn.execute(text(f'ALTER TABLE {full_table_name} ALTER COLUMN project_status_id INT NOT NULL;'))
+        conn.execute(text(f'ALTER TABLE {full_table_name} ALTER COLUMN destination_project_status_id INT NOT NULL;'))
+        conn.execute(text(f'ALTER TABLE {full_table_name} ALTER COLUMN association_type VARCHAR(20) NOT NULL;'))
         
-        # Handle empty array case explicitly
-        if clean_value == '[]':
-            return []
+        pk_name = f"PK_{table_name}"
+        conn.execute(text(f'ALTER TABLE {full_table_name} ADD CONSTRAINT "{pk_name}" PRIMARY KEY (project_status_id, destination_project_status_id, association_type);'))
+
+        fk_source_name = f"FK_{table_name}_source"
+        conn.execute(text(f'ALTER TABLE {full_table_name} ADD CONSTRAINT "{fk_source_name}" FOREIGN KEY (project_status_id) REFERENCES "{schema_name}"."{source_table_name}"(id);'))
         
-        # Handle different possible formats
-        if clean_value.startswith('[') and clean_value.endswith(']'):
-            # JSON array format
-            try:
-                slugs_list = json.loads(clean_value)
-                # Filter out empty strings and None values
-                valid_slugs = [slug.strip() for slug in slugs_list if slug and str(slug).strip()]
-                return valid_slugs
-            except json.JSONDecodeError:
-                logger.warning(f"Failed to parse JSON array: {clean_value}")
-                return []
-        else:
-            # Comma-separated format or single value
-            if ',' in clean_value:
-                valid_slugs = [slug.strip() for slug in clean_value.split(',') if slug.strip()]
-                return valid_slugs
-            else:
-                return [clean_value.strip()] if clean_value.strip() else []
-                
+        fk_dest_name = f"FK_{table_name}_destination"
+        conn.execute(text(f'ALTER TABLE {full_table_name} ADD CONSTRAINT "{fk_dest_name}" FOREIGN KEY (destination_project_status_id) REFERENCES "{schema_name}"."{source_table_name}"(id);'))
+        
+        logger.debug("Successfully added all keys and constraints to mapping table.")
     except Exception as e:
-        logger.error(f"Error parsing relationship column: {e}")
-        return []
-
-
-def verify_mapping_results(target_db_url, schema_name):
-    """
-    Verify the mapping table results and provide summary statistics.
-    """
-    engine = create_engine(target_db_url)
-    
-    with engine.begin() as conn:
-        # Get summary statistics
-        stats_query = text(f"""
-            SELECT 
-                association_type,
-                COUNT(*) as relationship_count,
-                COUNT(DISTINCT project_status_id) as unique_source_projects,
-                COUNT(DISTINCT destination_project_status_id) as unique_destination_projects
-            FROM {schema_name}.mapping_project_status_predecessor_successor
-            GROUP BY association_type
-            
-            UNION ALL
-            
-            SELECT 
-                'TOTAL' as association_type,
-                COUNT(*) as relationship_count,
-                COUNT(DISTINCT project_status_id) as unique_source_projects,
-                COUNT(DISTINCT destination_project_status_id) as unique_destination_projects
-            FROM {schema_name}.mapping_project_status_predecessor_successor
-        """)
-        
-        stats_df = pd.read_sql(stats_query, conn)
-        
-        logger.debug("Mapping table statistics:")
-        for _, row in stats_df.iterrows():
-            logger.debug(f"{row['association_type']}: {row['relationship_count']} relationships, "
-                       f"{row['unique_source_projects']} source projects, "
-                       f"{row['unique_destination_projects']} destination projects")
-        
-        return stats_df
-
-
-def get_processing_progress(target_db_url, schema_name):
-    """
-    Get progress information about how many projects have been processed.
-    """
-    engine = create_engine(target_db_url)
-    
-    with engine.begin() as conn:
-        # Get total projects
-        total_projects_query = text(f"""
-            SELECT COUNT(DISTINCT project_name) as total_projects
-            FROM {schema_name}.project_status
-            WHERE project_name IS NOT NULL
-        """)
-        
-        total_projects = pd.read_sql(total_projects_query, conn).iloc[0]['total_projects']
-        
-        # Get processed projects (those with mappings)
-        processed_projects_query = text(f"""
-            SELECT COUNT(DISTINCT ps.project_name) as processed_projects
-            FROM {schema_name}.project_status ps
-            INNER JOIN {schema_name}.mapping_project_status_predecessor_successor m
-                ON ps.id = m.project_status_id
-        """)
-        
-        processed_projects = pd.read_sql(processed_projects_query, conn).iloc[0]['processed_projects']
-        
-        logger.debug(f"Processing progress: {processed_projects}/{total_projects} projects completed")
-        
-        return {
-            'total_projects': total_projects,
-            'processed_projects': processed_projects,
-            'completion_percentage': (processed_projects / total_projects * 100) if total_projects > 0 else 0
-        }
-
+        logger.error(f"Failed to add constraints. The data may contain invalid relationships (e.g., pointing to a non-existent ID). Error: {e}")
+        raise
 
 def implement_predecessor_successor(target_db_url, schema_name):
-    # Create the mapping
-    create_project_status_mapping(target_db_url, schema_name)
+    """
+    The definitive high-performance version. It batches by project and applies
+    constraints at the very end to maximize insert speed.
+    """
+    # *** OPTIMIZATION: Enable fast_executemany for pyodbc driver ***
+    engine = create_engine(target_db_url, fast_executemany=True)
     
-    # Verify results
-    verify_mapping_results(target_db_url, schema_name)
-    
-    # Show progress
-    get_processing_progress(target_db_url, schema_name)
+    logger.debug("Starting optimized predecessor/successor mapping...")
 
+    try:
+        # The main transaction block is for reading and inserting.
+        with engine.begin() as conn:
+            # === Step 1: Create a plain, unconstrained table for fast inserts ===
+            create_mapping_table_no_constraints(conn, schema_name)
+
+            # === Step 2: Get a list of all unique projects to iterate through ===
+            logger.debug("Fetching list of all unique projects...")
+            projects_query = text(f'SELECT DISTINCT project_name FROM "{schema_name}"."project_status" WHERE project_name IS NOT NULL')
+            project_names = [row[0] for row in conn.execute(projects_query)]
+            logger.debug(f"Found {len(project_names)} projects to process.")
+            
+            # === Step 3: Loop through each project, processing and inserting into the plain table ===
+            for i, project_name in enumerate(project_names, 1):
+                logger.debug(f"Processing project {i}/{len(project_names)}: {project_name}")
+                
+                project_df = get_project_data(conn, schema_name, project_name)
+                if project_df.empty:
+                    continue
+                
+                mappings_df = process_project_dataframe(project_df)
+                if mappings_df.empty:
+                    continue
+
+                logger.debug(f"  Found {len(mappings_df)} mappings for '{project_name}'. Inserting...")
+                
+                # *** FIX: Pass the active connection `conn` and use a safe chunksize. ***
+                # This ensures all inserts happen within the single parent transaction and respects driver limits.
+                mappings_df.to_sql(
+                    name='mapping_project_status_predecessor_successor',
+                    con=conn, # Use the existing connection/transaction
+                    schema=schema_name,
+                    if_exists='append',
+                    index=False,
+                    chunksize=500, # Safe chunk size to stay under the 2100 parameter limit
+                    method='multi' 
+                )
+        
+        # === Step 4: After all data is loaded, run the finalization step in a new transaction ===
+        with engine.begin() as conn:
+            add_constraints_to_mapping_table(conn, schema_name)
+
+        logger.debug("Predecessor/successor mapping completed successfully.")
+
+    except Exception as e:
+        logger.error(f"A critical error occurred during the mapping process: {e}", exc_info=True)
+        raise
+
+def get_project_data(conn, schema_name, project_name):
+    """Helper function to fetch data for one project."""
+    slug_columns = ['project_phase_category', 'phase', 'stage_status', 'sub_stage']
+    query_columns = ['id', 'predecessor', 'successor'] + slug_columns
+    
+    project_sql = text(f"""
+        SELECT {', '.join(f'"{col}"' for col in query_columns)}
+        FROM "{schema_name}"."project_status"
+        WHERE project_name = :project_name
+    """)
+    return pd.read_sql(project_sql, conn, params={'project_name': project_name})
+
+def process_project_dataframe(df):
+    """Helper function to normalize a project's dataframe."""
+    if df.empty:
+        return pd.DataFrame()
+
+    slug_columns = ['project_phase_category', 'phase', 'stage_status', 'sub_stage']
+    
+    def create_slug(row):
+        return '$#'.join(row.dropna().astype(str).str.strip())
+    df['slug'] = df[slug_columns].apply(create_slug, axis=1)
+    slug_to_id = pd.Series(df.id.values, index=df.slug).to_dict()
+
+    # Process predecessors
+    predecessor_df = df[df['predecessor'].notna() & (df['predecessor'].str.strip() != '[]')].copy()
+    if not predecessor_df.empty:
+        # Use a vectorized approach for parsing JSON for better performance
+        predecessor_df['predecessor'] = [json.loads(s) for s in predecessor_df['predecessor']]
+        predecessor_df = predecessor_df.explode('predecessor')
+        predecessor_df['destination_project_status_id'] = predecessor_df['predecessor'].map(slug_to_id)
+        predecessor_df['association_type'] = 'predecessor'
+    
+    # Process successors
+    successor_df = df[df['successor'].notna() & (df['successor'].str.strip() != '[]')].copy()
+    if not successor_df.empty:
+        successor_df['successor'] = [json.loads(s) for s in successor_df['successor']]
+        successor_df = successor_df.explode('successor')
+        successor_df['destination_project_status_id'] = successor_df['successor'].map(slug_to_id)
+        successor_df['association_type'] = 'successor'
+
+    final_mappings = pd.concat([
+        predecessor_df[['id', 'destination_project_status_id', 'association_type']] if not predecessor_df.empty else pd.DataFrame(),
+        successor_df[['id', 'destination_project_status_id', 'association_type']] if not successor_df.empty else pd.DataFrame()
+    ])
+
+    if final_mappings.empty:
+        return pd.DataFrame()
+
+    final_mappings.rename(columns={'id': 'project_status_id'}, inplace=True)
+    final_mappings.dropna(inplace=True)
+    final_mappings['destination_project_status_id'] = final_mappings['destination_project_status_id'].astype(int)
+    
+    return final_mappings
