@@ -8,7 +8,7 @@ from db.data_migrator import migrate_data
 from db.data_quality import apply_constraints, change_data_types
 from db.database_optimization import create_project_period_indexes
 from db.drop_operations import drop_columns, drop_tables
-from db.predecessor_successor import implement_predecessor_successor
+from db.custom_operations import implement_predecessor_successor, create_lookup_project_to_media, link_project_management_to_status
 from db.rename_operations import rename_columns, rename_tables
 from db.schema_changes import split_columns, split_tables
 from db.schema_writer import read_schema, write_schema
@@ -113,13 +113,17 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         phase_end = time.time()
         logger.info(f"Phase 6 completed in {phase_end - phase_start:.2f} seconds")
 
-    # Phase 7 Implement predecessor-successor
+    # Phase 7 Custom changes
     if "phase7" in phases_to_skip:
-        logger.info("Skipping Phase 7: Implement predecessor-successor")
+        logger.info("Skipping Phase 7: Custom changes")
     else:
         phase_start = time.time()
-        logger.info(f"Phase 7: Implement predecessor-successor")
+        logger.info(f"Implement predecessor-successor - 7a")
         implement_predecessor_successor(target_db_url, target_schema)
+        logger.info(f"Implement project to media mapping - 7b")
+        create_lookup_project_to_media(target_db_url, target_schema)
+        logger.info(f"Link project management to status - 7c")
+        link_project_management_to_status(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 7 completed in {phase_end - phase_start:.2f} seconds")
 
