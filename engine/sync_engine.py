@@ -11,7 +11,7 @@ from db.drop_operations import drop_columns, drop_tables
 from db.custom_operations import implement_predecessor_successor, create_lookup_project_to_media, link_project_management_to_status
 from db.rename_operations import rename_columns, rename_tables
 from db.schema_changes import split_columns, split_tables
-from db.schema_writer import read_schema, write_schema
+from db.schema_writer import read_schema, replicate_schema_with_sql, write_schema
 from db.sync_master_tables import sync_master_tables
 from utils.logger import setup_logger
 
@@ -42,7 +42,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         if application == "insights":
             filtered_tables = {key: value for key, value in tables.items() if 'master' not in key.lower()}
             tables = filtered_tables
-        write_schema(target_db_url, tables, target_schema)
+        replicate_schema_with_sql(source_db_url, target_db_url, source_schema, target_schema)
         if application == "insights":
             logger.info("Writing master tables into insights")
             sync_master_tables()
