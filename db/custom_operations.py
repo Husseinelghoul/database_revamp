@@ -6,6 +6,8 @@ from sqlalchemy import create_engine, text
 
 from utils.logger import setup_logger
 
+# Assume logger is configured and available
+
 # Assume logger is configured
 logger = setup_logger()
 
@@ -227,15 +229,6 @@ def link_project_management_to_status(target_db_url, schema_name):
     except Exception as e:
         logger.error(f"A critical error occurred during the project management linking process: {e}", exc_info=True)
         raise
-
-import pandas as pd
-from sqlalchemy import create_engine, text
-import logging
-import json
-import os
-
-# Assume logger is configured and available
-logger = logging.getLogger(__name__)
 
 def get_mime_type(path):
     """Helper to safely extract a file extension."""

@@ -1,5 +1,8 @@
 import time
 
+from db.custom_operations import (create_lookup_project_to_media,
+                                  implement_predecessor_successor,
+                                  link_project_management_to_status)
 from db.data_insertion import populate_master_tables
 from db.data_integrity import (add_primary_keys,
                                implement_many_to_many_relations,
@@ -8,7 +11,6 @@ from db.data_migrator import migrate_data
 from db.data_quality import apply_constraints, change_data_types
 from db.database_optimization import create_project_period_indexes
 from db.drop_operations import drop_columns, drop_tables
-from db.custom_operations import implement_predecessor_successor, create_lookup_project_to_media, link_project_management_to_status
 from db.rename_operations import rename_columns, rename_tables
 from db.schema_changes import split_columns, split_tables
 from db.schema_writer import read_schema, replicate_schema_with_sql

@@ -1,5 +1,6 @@
-from sqlalchemy import create_engine, inspect, MetaData, Table
-from db.data_migrator import migrate_data # Assuming this is where migrate_data is
+from sqlalchemy import MetaData, Table, create_engine, inspect
+
+from db.data_migrator import migrate_data
 from utils.logger import setup_logger
 
 logger = setup_logger()
