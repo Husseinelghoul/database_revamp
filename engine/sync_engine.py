@@ -1,9 +1,9 @@
 import time
 
+from config.db_config import build_connection_url, load_config
 from db.custom_operations import (create_lookup_project_to_media,
                                   implement_predecessor_successor,
                                   link_project_management_to_status)
-from db.data_insertion import populate_master_tables
 from db.data_integrity import (add_primary_keys,
                                implement_many_to_many_relations,
                                implement_one_to_many_relations)
@@ -14,7 +14,8 @@ from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
 from db.schema_changes import split_columns, split_tables
 from db.schema_writer import read_schema, replicate_schema_with_sql
-from db.sync_master_tables import streamlined_sync_master_tables
+from db.sync_master_tables import (populate_master_tables,
+                                   streamlined_sync_master_tables)
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -47,7 +48,10 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         replicate_schema_with_sql(source_db_url, target_db_url, source_schema, target_schema)
         if application == "insights":
             logger.info("Writing master tables into insights")
-            streamlined_sync_master_tables(source_db_url, target_db_url, source_schema, target_schema)
+            config = load_config("config.json")
+            pulse_source_schema = config[f'pulse_source_db']['schema']
+            pulse_db_url = build_connection_url(config["pulse_source_db"])
+            streamlined_sync_master_tables(pulse_db_url, target_db_url, pulse_source_schema, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 1 completed in {phase_end - phase_start:.2f} seconds")
 
