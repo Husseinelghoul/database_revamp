@@ -11,8 +11,8 @@ from db.drop_operations import drop_columns, drop_tables
 from db.custom_operations import implement_predecessor_successor, create_lookup_project_to_media, link_project_management_to_status
 from db.rename_operations import rename_columns, rename_tables
 from db.schema_changes import split_columns, split_tables
-from db.schema_writer import read_schema, replicate_schema_with_sql, write_schema
-from db.sync_master_tables import sync_master_tables
+from db.schema_writer import read_schema, replicate_schema_with_sql
+from db.sync_master_tables import streamlined_sync_master_tables
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -45,7 +45,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         replicate_schema_with_sql(source_db_url, target_db_url, source_schema, target_schema)
         if application == "insights":
             logger.info("Writing master tables into insights")
-            sync_master_tables()
+            streamlined_sync_master_tables(source_db_url, target_db_url, source_schema, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 1 completed in {phase_end - phase_start:.2f} seconds")
 

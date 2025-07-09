@@ -1,29 +1,62 @@
-
-from config.db_config import build_connection_url, load_config
-from db.data_migrator import migrate_data
-from db.schema_writer import read_schema, write_schema
+from sqlalchemy import create_engine, inspect, MetaData, Table
+from db.data_migrator import migrate_data # Assuming this is where migrate_data is
 from utils.logger import setup_logger
 
 logger = setup_logger()
 
-config = load_config("config.json")
+def streamlined_sync_master_tables(source_db_url, target_db_url, source_schema, target_schema):
+    """
+    A more efficient and robust function to sync all master tables and their data.
+    This function replaces the need for separate read_schema and write_schema functions.
+    """
+    logger.info(f"Starting streamlined sync of master tables from '{source_schema}' to '{target_schema}'...")
+    source_engine = create_engine(source_db_url)
+    target_engine = create_engine(target_db_url)
+    source_inspector = inspect(source_engine)
+    target_inspector = inspect(target_engine)
+    source_meta = MetaData()
 
-pulse_source_schema = config[f'pulse_source_db']['schema']
-insights_target_schema = config[f'insights_target_db']['schema']
+    try:
+        # === Step 1: Get the list of master tables from the source ===
+        all_source_tables = source_inspector.get_table_names(schema=source_schema)
+        master_table_names = [name for name in all_source_tables if "master" in name.lower()]
+        logger.info(f"Found {len(master_table_names)} master tables to sync.")
 
-# Build connection URLs
-pulse_db_url = build_connection_url(config["pulse_source_db"])
-insights_db_url = build_connection_url(config[f"insights_target_db"])
+        # === Step 2: Reflect and create the exact schema in the target ===
+        for table_name in master_table_names:
+            if target_inspector.has_table(table_name, schema=target_schema):
+                logger.debug(f"Table {target_schema}.{table_name} already exists. Skipping schema creation.")
+                continue
+            
+            # Use SQLAlchemy's reflection to automatically get the table's full structure
+            table = Table(table_name, source_meta, autoload_with=source_engine, schema=source_schema)
+            
+            # Point the table to the new target schema
+            table.schema = target_schema
+            
+            # Create the table in the target database
+            table.create(bind=target_engine)
+            logger.info(f"Successfully created schema for {target_schema}.{table_name}")
 
+        logger.info("Schema synchronization complete.")
 
-def sync_master_tables():
-    schema, tables = read_schema(pulse_db_url, pulse_source_schema)
-    filtered_schema = {key: value for key, value in schema.items() if "master" in key.lower()}
-    filtered_tables = {key: value for key, value in tables.items() if 'master' in key.lower()}
-    logger.debug(f"Copying {len(filtered_tables)} tables schema...")
-    write_schema(insights_db_url, filtered_tables, insights_target_schema)
-    logger.info("Completed copying master tables schema to insights")
-    logger.info("Copying master tables data")
-    migrate_data(pulse_db_url, insights_db_url, filtered_schema, pulse_source_schema, insights_target_schema)
-    logger.info("Completed copying master tables data")
-    
+        # === Step 3: Migrate the data using our existing robust function ===
+        # The migrate_data function needs a dictionary with table names as keys.
+        master_schema_dict = {name: {} for name in master_table_names}
+
+        logger.info("Starting data migration for master tables...")
+        migrate_data(
+            source_db_url,
+            target_db_url,
+            master_schema_dict, # Pass the filtered list of tables
+            source_schema,
+            target_schema
+        )
+        logger.info("Master table data migration complete.")
+
+    except Exception as e:
+        logger.error(f"An error occurred during master table sync: {e}")
+        raise e
+    finally:
+        source_engine.dispose()
+        target_engine.dispose()
