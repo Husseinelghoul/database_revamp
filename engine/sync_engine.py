@@ -13,7 +13,7 @@ from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
 from db.schema_changes import split_columns, split_tables
 from db.schema_writer import read_schema, replicate_schema_with_sql
-from db.sync_master_tables import (populate_master_tables,
+from db.sync_master_tables import (merge_master_tables, populate_master_tables,
                                    streamlined_sync_master_tables)
 from utils.logger import setup_logger
 
@@ -141,6 +141,8 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info(f"Phase 8: Add Foreing Keys for Master Tables")
         logger.info(f"Populating master tables - 8a")
         populate_master_tables(target_db_url, target_schema)
+        logger.info(f"Merging master tables - 8a")
+        merge_master_tables(target_db_url, target_schema)
         logger.info(f"Implementing one to many relations - 8b")
         implement_one_to_many_relations(target_db_url, target_schema)
         logger.info(f"Implementing many to many relations - 8c")

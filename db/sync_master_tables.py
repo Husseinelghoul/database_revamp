@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 from sqlalchemy import VARCHAR, MetaData, Table, create_engine, inspect, text, NVARCHAR
 
 from db.data_migrator import migrate_data
@@ -102,10 +103,13 @@ def streamlined_sync_master_tables(source_db_url, target_db_url, source_schema, 
 
 def populate_master_tables(target_db_url, schema_name, csv_path="config/master_table_values/master_values.csv"):
     """
-    Populates master tables from a CSV.
-    
-    This corrected version automatically alters both VARCHAR and NVARCHAR columns 
-    smaller than 255 to a length of 255 to prevent truncation errors.
+    Refreshes master tables entirely from a CSV file.
+
+    This version will:
+    1.  **Delete All Data**: It completely clears the target table.
+    2.  **Reset the ID Column**: It reseeds the identity counter so that new entries start from 1.
+    3.  **Repopulate from CSV**: It inserts a clean, unique list of values from the CSV file.
+    4.  **Manages Schema**: It still automatically alters VARCHAR and NVARCHAR columns to prevent future truncation errors.
     """
     master_df = pd.read_csv(csv_path)
     engine = create_engine(target_db_url)
@@ -113,54 +117,148 @@ def populate_master_tables(target_db_url, schema_name, csv_path="config/master_t
 
     with engine.begin() as conn:
         for table_name in master_df.columns:
-            distinct_values = master_df[table_name].dropna().tolist()
+            # Get a clean, unique list of values from the CSV.
+            distinct_values = master_df[table_name].dropna().unique().tolist()
 
-            if len(distinct_values) == 1 and distinct_values[0].strip().lower() == "empty":
-                logger.debug(f"Skipping table {table_name} as it contains only 'empty'.")
-                continue
+            if not distinct_values:
+                logger.info(f"No values in CSV for table {table_name}. Clearing table only.")
+                # You might want to just clear the table if the CSV column is empty.
+                try:
+                    safe_table_identifier = f'"{schema_name}"."{table_name}"'
+                    conn.execute(text(f"DELETE FROM {safe_table_identifier};"))
+                    logger.info(f"Cleared table {safe_table_identifier} as it had no corresponding values in the CSV.")
+                except Exception as e:
+                    logger.error(f"Failed to clear table {schema_name}.{table_name}: {e}")
+                continue # Move to the next table
             
             try:
-                # === 1. Inspect and Alter Schema ===
+                # === 1. Inspect and Alter Schema (Unchanged) ===
                 columns = inspector.get_columns(table_name, schema=schema_name)
                 for col in columns:
-                    # === THE FIX: Check for both VARCHAR and NVARCHAR ===
                     is_string_type = isinstance(col['type'], (VARCHAR, NVARCHAR))
                     
                     if is_string_type and col['type'].length is not None and col['type'].length < 255:
-                        # Get the base type name ('VARCHAR' or 'NVARCHAR') to preserve it
                         new_type_name = col['type'].__class__.__name__
-                        
                         logger.info(
                             f"Altering column '{col['name']}' in table '{table_name}' "
                             f"from {new_type_name}({col['type'].length}) to {new_type_name}(255)."
                         )
                         alter_sql = text(
                             f'ALTER TABLE "{schema_name}"."{table_name}" '
-                            f'ALTER COLUMN "{col["name"]}" {new_type_name}(255) NULL' # Added NULL to be safe
+                            f'ALTER COLUMN "{col["name"]}" {new_type_name}(255) NULL'
                         )
                         conn.execute(alter_sql)
 
-                # === 2. Robustly Find the Target Column ===
+                # === 2. Find Target Column ===
                 identity_cols = {c["name"] for c in columns if c.get("autoincrement")}
                 target_column = next((c["name"] for c in columns if c["name"] not in identity_cols), None)
                 
                 if not target_column:
-                    raise ValueError(f"No non-identity column found in table {table_name} to insert into.")
+                    raise ValueError(f"No non-identity column found in table '{table_name}' to insert into.")
 
-                # === 3. Safely Execute SQL ===
+                # === 3. Wipe, Reset, and Repopulate ===
                 safe_table_identifier = f'"{schema_name}"."{table_name}"'
                 safe_column_identifier = f'"{target_column}"'
 
+                # Step 3a: Delete all existing data from the table.
+                logger.warning(f"Deleting all data from {safe_table_identifier}.")
                 conn.execute(text(f"DELETE FROM {safe_table_identifier};"))
                 
+                # Step 3b: Reseed the identity column to start from 1.
+                # DBCC CHECKIDENT RESEED, 0 means the next entry will get an ID of 1.
                 if identity_cols:
+                    logger.warning(f"Resetting identity ID for {safe_table_identifier}.")
                     conn.execute(text(f"DBCC CHECKIDENT ('{safe_table_identifier}', RESEED, 0);"))
                 
+                # Step 3c: Insert the clean list of values from the CSV.
                 for value in distinct_values:
                     insert_sql = text(f"INSERT INTO {safe_table_identifier} ({safe_column_identifier}) VALUES (:value);")
-                    conn.execute(insert_sql, {"value": value.strip()})
+                    conn.execute(insert_sql, {"value": str(value).strip()})
                 
-                logger.debug(f"Successfully populated table {schema_name}.{table_name}.")
+                logger.info(f"Successfully refreshed and populated table {schema_name}.{table_name} with {len(distinct_values)} values.")
+
             except Exception as e:
-                logger.error(f"Failed to populate table {schema_name}.{table_name}: {e}")
-                raise e
+                logger.error(f"Failed to process table {schema_name}.{table_name}: {e}")
+                raise e # Stop execution on error
+
+def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/master_tables/"):
+    """
+    Merges new data from CSV files into their corresponding database tables.
+
+    This function iterates through a folder of CSV files. For each file, it assumes
+    the filename (without the .csv extension) matches a table name. It reads the
+    CSV and compares its rows to the existing rows in the database table. Only the
+    rows that do not already exist in the database are inserted.
+
+    Key Assumptions:
+    - The column names in each CSV file must exactly match the column names in the
+      corresponding database table.
+    - Existing data in the database will NOT be deleted or altered.
+
+    Args:
+        target_db_url (str): The connection string for the target database
+                             (e.g., 'mssql+pyodbc://user:pass@server/db?driver=ODBC+Driver+17+for+SQL+Server').
+        schema_name (str): The name of the database schema where the tables reside.
+        csv_folder_path (str): The path to the folder containing the CSV files to process.
+    """
+    try:
+        engine = create_engine(target_db_url)
+        csv_files = [f for f in os.listdir(csv_folder_path) if f.endswith('.csv')]
+    except FileNotFoundError:
+        logger.error(f"Error: The folder at '{csv_folder_path}' was not found.")
+        raise
+    except ImportError:
+        logger.error("Error: The necessary database driver (e.g., pyodbc) is not installed.")
+        raise
+        
+    if not csv_files:
+        logger.warning(f"No CSV files found in '{csv_folder_path}'. No tables were processed.")
+        return
+
+    logger.info(f"Found {len(csv_files)} CSV files to process. Starting merge operation.")
+
+    for csv_file in csv_files:
+        table_name = os.path.splitext(csv_file)[0]
+        file_path = os.path.join(csv_folder_path, csv_file)
+        
+        try:
+            with engine.connect() as conn:
+                # 1. Read the existing data from the database table
+                logger.info(f"Reading existing data from table: '{schema_name}.{table_name}'...")
+                existing_data_df = pd.read_sql_table(table_name, conn, schema=schema_name)
+                
+                # 2. Read the new data from the CSV file
+                new_data_df = pd.read_csv(file_path)
+
+                if new_data_df.empty:
+                    logger.info(f"CSV file '{csv_file}' is empty. Skipping.")
+                    continue
+
+                # 3. Identify rows in the CSV that are NOT in the database
+                # We perform a left merge to find rows that are unique to the CSV data.
+                merged_df = new_data_df.merge(
+                    existing_data_df, 
+                    how='left', 
+                    indicator=True
+                )
+                
+                rows_to_insert = merged_df[merged_df['_merge'] == 'left_only'].drop(columns=['_merge'])
+
+                # 4. Insert only the new rows into the database
+                if not rows_to_insert.empty:
+                    logger.info(f"Found {len(rows_to_insert)} new row(s) in '{csv_file}'. Inserting into '{table_name}'...")
+                    rows_to_insert.to_sql(
+                        name=table_name,
+                        con=conn,
+                        schema=schema_name,
+                        if_exists='append',
+                        index=False
+                    )
+                    logger.info(f"Successfully inserted new data into '{schema_name}.{table_name}'.")
+                else:
+                    logger.info(f"No new data to insert for '{table_name}'. Database is already up-to-date.")
+
+        except Exception as e:
+            logger.error(f"Failed to process table '{schema_name}.{table_name}' from file '{csv_file}': {e}")
+            # Continue to the next file instead of stopping the entire process
+            continue
