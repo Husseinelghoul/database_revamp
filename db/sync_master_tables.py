@@ -103,13 +103,14 @@ def streamlined_sync_master_tables(source_db_url, target_db_url, source_schema, 
 
 def populate_master_tables(target_db_url, schema_name, csv_path="config/master_table_values/master_values.csv"):
     """
-    Refreshes master tables entirely from a CSV file.
+    Refreshes master tables by combining existing data with new data from a CSV,
+    then rebuilds the table with a clean, sequential identity column.
 
     This version will:
-    1.  **Delete All Data**: It completely clears the target table.
-    2.  **Reset the ID Column**: It reseeds the identity counter so that new entries start from 1.
-    3.  **Repopulate from CSV**: It inserts a clean, unique list of values from the CSV file.
-    4.  **Manages Schema**: It still automatically alters VARCHAR and NVARCHAR columns to prevent future truncation errors.
+    1.  **Combine Data**: Merges unique values from the database and the CSV file.
+    2.  **Preserve All Unique Values**: No data is permanently lost; it's held in memory.
+    3.  **Wipe and Reset**: Clears the table and resets the ID column to start fresh from 1.
+    4.  **Repopulate**: Inserts the complete, combined dataset into the clean table.
     """
     master_df = pd.read_csv(csv_path)
     engine = create_engine(target_db_url)
@@ -117,65 +118,53 @@ def populate_master_tables(target_db_url, schema_name, csv_path="config/master_t
 
     with engine.begin() as conn:
         for table_name in master_df.columns:
-            # Get a clean, unique list of values from the CSV.
-            distinct_values = master_df[table_name].dropna().unique().tolist()
-
-            if not distinct_values:
-                logger.info(f"No values in CSV for table {table_name}. Clearing table only.")
-                # You might want to just clear the table if the CSV column is empty.
-                try:
-                    safe_table_identifier = f'"{schema_name}"."{table_name}"'
-                    conn.execute(text(f"DELETE FROM {safe_table_identifier};"))
-                    logger.info(f"Cleared table {safe_table_identifier} as it had no corresponding values in the CSV.")
-                except Exception as e:
-                    logger.error(f"Failed to clear table {schema_name}.{table_name}: {e}")
-                continue # Move to the next table
-            
             try:
-                # === 1. Inspect and Alter Schema (Unchanged) ===
-                columns = inspector.get_columns(table_name, schema=schema_name)
-                for col in columns:
-                    is_string_type = isinstance(col['type'], (VARCHAR, NVARCHAR))
-                    
-                    if is_string_type and col['type'].length is not None and col['type'].length < 255:
-                        new_type_name = col['type'].__class__.__name__
-                        logger.info(
-                            f"Altering column '{col['name']}' in table '{table_name}' "
-                            f"from {new_type_name}({col['type'].length}) to {new_type_name}(255)."
-                        )
-                        alter_sql = text(
-                            f'ALTER TABLE "{schema_name}"."{table_name}" '
-                            f'ALTER COLUMN "{col["name"]}" {new_type_name}(255) NULL'
-                        )
-                        conn.execute(alter_sql)
+                # === Part 1: Gather and Combine All Data ===
+                
+                # Get clean, unique values from the CSV file
+                csv_values = {val.strip() for val in master_df[table_name].dropna()}
+                logger.info(f"Found {len(csv_values)} unique values in CSV for '{table_name}'.")
 
-                # === 2. Find Target Column ===
+                # Find the target column for data operations
+                columns = inspector.get_columns(table_name, schema=schema_name)
                 identity_cols = {c["name"] for c in columns if c.get("autoincrement")}
                 target_column = next((c["name"] for c in columns if c["name"] not in identity_cols), None)
                 
                 if not target_column:
-                    raise ValueError(f"No non-identity column found in table '{table_name}' to insert into.")
+                    raise ValueError(f"No non-identity column found in '{table_name}'.")
 
-                # === 3. Wipe, Reset, and Repopulate ===
                 safe_table_identifier = f'"{schema_name}"."{table_name}"'
                 safe_column_identifier = f'"{target_column}"'
 
-                # Step 3a: Delete all existing data from the table.
-                logger.warning(f"Deleting all data from {safe_table_identifier}.")
+                # Fetch all current values from the database table
+                select_sql = text(f"SELECT {safe_column_identifier} FROM {safe_table_identifier};")
+                result = conn.execute(select_sql)
+                existing_values = {row[0] for row in result if row[0] is not None}
+                logger.info(f"Found {len(existing_values)} existing values in DB for '{table_name}'.")
+                
+                # Combine both sets and sort for consistent ordering
+                final_values = sorted(list(csv_values.union(existing_values)))
+                logger.info(f"Combined total of {len(final_values)} unique values for '{table_name}'.")
+
+
+                # === Part 2: Wipe the Table and Reset the ID ===
+
+                logger.warning(f"Deleting all data from {safe_table_identifier} to rebuild.")
                 conn.execute(text(f"DELETE FROM {safe_table_identifier};"))
                 
-                # Step 3b: Reseed the identity column to start from 1.
-                # DBCC CHECKIDENT RESEED, 0 means the next entry will get an ID of 1.
                 if identity_cols:
-                    logger.warning(f"Resetting identity ID for {safe_table_identifier}.")
+                    logger.warning(f"Resetting identity ID for {safe_table_identifier} to start at 1.")
+                    # RESEED, 0 means the next inserted ID will be 1
                     conn.execute(text(f"DBCC CHECKIDENT ('{safe_table_identifier}', RESEED, 0);"))
-                
-                # Step 3c: Insert the clean list of values from the CSV.
-                for value in distinct_values:
+
+
+                # === Part 3: Repopulate the Table with the Final, Combined Data ===
+
+                for value in final_values:
                     insert_sql = text(f"INSERT INTO {safe_table_identifier} ({safe_column_identifier}) VALUES (:value);")
-                    conn.execute(insert_sql, {"value": str(value).strip()})
+                    conn.execute(insert_sql, {"value": value})
                 
-                logger.info(f"Successfully refreshed and populated table {schema_name}.{table_name} with {len(distinct_values)} values.")
+                logger.info(f"Successfully rebuilt {safe_table_identifier} with {len(final_values)} total values.")
 
             except Exception as e:
                 logger.error(f"Failed to process table {schema_name}.{table_name}: {e}")
