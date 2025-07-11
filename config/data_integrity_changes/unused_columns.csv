@@ -73,3 +73,6 @@ project_summary,additional_documents_files
 project_summary,progress_videos
 project_summary,project_management_files
 project_management,phase
+feedback,feedback_attachments
+project_milestone,letter_reference_attachment
+project_status,pte_attachment

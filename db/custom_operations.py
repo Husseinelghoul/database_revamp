@@ -1,14 +1,9 @@
 import json
-import os
-
 import pandas as pd
 from sqlalchemy import create_engine, text
 
 from utils.logger import setup_logger
 
-# Assume logger is configured and available
-
-# Assume logger is configured
 logger = setup_logger()
 
 def create_mapping_table_no_constraints(conn, schema_name):
@@ -184,180 +179,73 @@ def process_project_dataframe(df):
     
     return final_mappings
 
-def link_project_management_to_status(target_db_url, schema_name):
+def link_project_management_to_sources(target_db_url, schema_name):
     """
-    Simplified and Final Version: Updates project_management by directly joining
-    to project_status on project_name, period, and phase. No slugs involved.
+    Updates the project_management table by linking it to both the
+    project_status and project_summary tables.
+
+    - Links to project_status on 'project_name', 'period', and 'phase'.
+    - Links to project_summary on 'project_name' and 'period'.
     """
     engine = create_engine(target_db_url)
+    
+    # Define all table names
     full_pm_table = f'"{schema_name}"."project_management"'
     full_ps_table = f'"{schema_name}"."project_status"'
+    full_summary_table = f'"{schema_name}"."project_summary"'
 
     try:
-        # Step 1: Ensure the target column exists.
+        # Step 1: Ensure the foreign key columns exist in the project_management table.
         with engine.begin() as conn:
-            logger.debug(f"Ensuring {full_pm_table} has the project_status_id column...")
+            logger.debug(f"Ensuring required columns exist in {full_pm_table}...")
+            
+            # Add project_status_id if it doesn't exist
             conn.execute(text(f"""
                 IF COL_LENGTH('{schema_name}.project_management', 'project_status_id') IS NULL
                 BEGIN
                     ALTER TABLE {full_pm_table} ADD project_status_id INT NULL;
                 END
             """))
+            
+            # Add project_summary_id if it doesn't exist
+            conn.execute(text(f"""
+                IF COL_LENGTH('{schema_name}.project_management', 'project_summary_id') IS NULL
+                BEGIN
+                    ALTER TABLE {full_pm_table} ADD project_summary_id INT NULL;
+                END
+            """))
 
-        # Step 2: Perform the entire update with a single, efficient SQL statement.
+        # Step 2: Perform the updates using efficient SQL joins.
         with engine.begin() as conn:
-            logger.debug("Updating project_management by joining directly to project_status...")
-            
-            # This single query does all the work on the database side.
-            update_sql = text(f"""
+            # --- Link to project_status ---
+            logger.debug("Updating project_management with IDs from project_status...")
+            update_status_sql = text(f"""
                 UPDATE pm
-                SET
-                    pm.project_status_id = ps.id
-                FROM
-                    {full_pm_table} AS pm
-                JOIN
-                    {full_ps_table} AS ps ON pm.project_name = ps.project_name
-                                         AND pm.period = ps.period
-                                         AND pm.phase = ps.phase;
+                SET pm.project_status_id = ps.id
+                FROM {full_pm_table} AS pm
+                JOIN {full_ps_table} AS ps 
+                    ON pm.project_name = ps.project_name
+                    AND pm.period = ps.period
+                    AND pm.phase = ps.phase;
             """)
-            
-            result = conn.execute(update_sql)
-            logger.info(f"Successfully updated {result.rowcount} rows in project_management.")
+            status_result = conn.execute(update_status_sql)
+            logger.info(f"Linked {status_result.rowcount} rows to project_status.")
 
-        logger.debug("Project management linking process completed successfully.")
+            # --- Link to project_summary ---
+            logger.debug("Updating project_management with IDs from project_summary...")
+            update_summary_sql = text(f"""
+                UPDATE pm
+                SET pm.project_summary_id = psum.id
+                FROM {full_pm_table} AS pm
+                JOIN {full_summary_table} AS psum 
+                    ON pm.project_name = psum.project_name
+                    AND pm.period = psum.period;
+            """)
+            summary_result = conn.execute(update_summary_sql)
+            logger.info(f"Linked {summary_result.rowcount} rows to project_summary.")
+
+        logger.info("Project management linking process completed successfully.")
 
     except Exception as e:
         logger.error(f"A critical error occurred during the project management linking process: {e}", exc_info=True)
-        raise
-
-def get_mime_type(path):
-    """Helper to safely extract a file extension."""
-    if not isinstance(path, str) or '.' not in path:
-        return None
-    return os.path.splitext(path)[1].lstrip('.').lower()
-
-def parse_json_cell(cell_value):
-    """Safely parse a JSON cell and extract file_path and phase."""
-    try:
-        data = json.loads(cell_value)
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            return [{'file_path': str(item.get('file_path', '')).strip('"'), 'phase': str(item.get('phase', '')).strip()} for item in data]
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return []
-
-def create_lookup_project_to_media(target_db_url, schema_name):
-    """
-    Final Clean Version:
-    1. Skips NULL/empty values from the source.
-    2. Fixes the FutureWarning by filtering empty dataframes before concatenation.
-    3. Uses optimized, vectorized operations.
-    """
-    MEDIA_COLUMNS = [
-        'decree_files', 'plot_plan_files', 'static_images_files',
-        'dynamic_images_files', 'additional_documents_files',
-        'progress_videos', 'project_management_files'
-    ]
-    engine = create_engine(target_db_url)
-    full_target_name = f'"{schema_name}"."lookup_project_to_media"'
-    full_source_name = f'"{schema_name}"."project_summary"'
-    full_lookup_name = f'"{schema_name}"."lookup_project_to_phase"'
-
-    try:
-        # Step 1: Prepare the destination table
-        with engine.begin() as conn:
-            logger.debug(f"Setting up fresh target table {full_target_name}...")
-            conn.execute(text(f'DROP TABLE IF EXISTS {full_target_name};'))
-            media_type_check_list = ", ".join([f"'{col}'" for col in MEDIA_COLUMNS])
-            create_sql = f"""
-                CREATE TABLE {full_target_name} (
-                    id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-                    project_summary_id INT NOT NULL,
-                    lookup_project_to_phase_id INT NULL,
-                    media_type NVARCHAR(255) NOT NULL,
-                    file_path NVARCHAR(MAX) NOT NULL,
-                    mime_type NVARCHAR(100) NULL,
-                    CONSTRAINT fk_media_to_summary_final FOREIGN KEY (project_summary_id) REFERENCES {full_source_name}(id),
-                    CONSTRAINT fk_media_to_phase_final FOREIGN KEY (lookup_project_to_phase_id) REFERENCES {full_lookup_name}(id),
-                    CONSTRAINT chk_media_type_final CHECK (media_type IN ({media_type_check_list}))
-                );
-            """
-            conn.execute(text(create_sql))
-
-        # Step 2: Load all necessary data
-        logger.debug("Loading source and lookup data into memory...")
-        source_df = pd.read_sql(f'SELECT id, project_name, period, {", ".join(MEDIA_COLUMNS)} FROM {full_source_name}', engine)
-        lookup_df = pd.read_sql(f'SELECT id, project_name, period, phase FROM {full_lookup_name}', engine)
-        lookup_df.rename(columns={'id': 'lookup_project_to_phase_id'}, inplace=True)
-
-        # Step 3: Unpivot the source data into a long format
-        id_vars = ['id', 'project_name', 'period']
-        melted_df = source_df.melt(id_vars=id_vars, value_vars=MEDIA_COLUMNS, var_name='media_type', value_name='cell_value')
-        melted_df.rename(columns={'id': 'project_summary_id'}, inplace=True)
-
-        # Step 4: Filter out empty/NULL rows
-        melted_df.dropna(subset=['cell_value'], inplace=True)
-        melted_df['cell_value_str'] = melted_df['cell_value'].astype(str).str.strip()
-        melted_df = melted_df[melted_df['cell_value_str'] != '[]']
-        melted_df = melted_df[melted_df['cell_value_str'] != '']
-
-        if melted_df.empty:
-            logger.warning("No valid media file data found to process.")
-            return
-
-        # Step 5: Separate data by format
-        is_json_format = melted_df['cell_value_str'].str.startswith('[{"')
-        df_json = melted_df[is_json_format].copy()
-        df_simple = melted_df[~is_json_format].copy()
-        
-        final_dfs = []
-
-        # Step 6: Process Format 2 (JSON with phase)
-        if not df_json.empty:
-            logger.debug(f"Processing {len(df_json)} JSON format rows...")
-            df_json['parsed'] = df_json['cell_value'].apply(parse_json_cell)
-            df_json = df_json.explode('parsed').dropna(subset=['parsed'])
-            df_json.reset_index(drop=True, inplace=True)
-
-            parsed_df = pd.json_normalize(df_json['parsed'])
-            df_json = pd.concat([df_json.drop(columns=['parsed', 'cell_value', 'cell_value_str']), parsed_df], axis=1)
-
-            for key in ['project_name', 'period', 'phase']:
-                df_json[key] = df_json[key].astype(str).str.strip()
-                lookup_df[key] = lookup_df[key].astype(str).str.strip()
-            
-            merged_json = pd.merge(df_json, lookup_df, on=['project_name', 'period', 'phase'], how='left')
-            final_dfs.append(merged_json)
-
-        # Step 7: Process Format 1 (Simple array)
-        if not df_simple.empty:
-            logger.debug(f"Processing {len(df_simple)} simple format rows...")
-            df_simple['file_path'] = df_simple['cell_value'].astype(str).str.strip('[]"').str.split('","')
-            df_simple = df_simple.explode('file_path')
-            df_simple['lookup_project_to_phase_id'] = None
-            final_dfs.append(df_simple)
-
-        # === FIX: Filter out empty dataframes before concatenation to avoid the warning ===
-        final_dfs = [df for df in final_dfs if not df.empty]
-        if not final_dfs:
-            logger.warning("No records were generated after processing.")
-            return
-
-        # Step 8: Combine, clean, and insert
-        output_df = pd.concat(final_dfs, ignore_index=True)
-        output_df['file_path'] = output_df['file_path'].astype(str).str.strip().str.strip('"')
-        output_df['mime_type'] = output_df['file_path'].apply(get_mime_type)
-        
-        final_cols = ['project_summary_id', 'lookup_project_to_phase_id', 'media_type', 'file_path', 'mime_type']
-        output_df = output_df[final_cols]
-        output_df.dropna(subset=['file_path'], inplace=True)
-        output_df = output_df[output_df['file_path'] != '']
-
-        logger.info(f"Processed data. Inserting {len(output_df)} records into the database...")
-        output_df.to_sql(name='lookup_project_to_media', con=engine, schema=schema_name, if_exists='append', index=False, chunksize=400)
-        
-        logger.debug("Successfully created and populated the media lookup table.")
-
-    except Exception as e:
-        logger.error(f"A critical error occurred during the media lookup creation: {e}", exc_info=True)
         raise

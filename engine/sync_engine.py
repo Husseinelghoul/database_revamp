@@ -1,9 +1,8 @@
 import time
 
 from config.db_config import build_connection_url, load_config
-from db.custom_operations import (create_lookup_project_to_media,
-                                  implement_predecessor_successor,
-                                  link_project_management_to_status)
+from db.custom_operations import implement_predecessor_successor, link_project_management_to_sources
+from db.create_lookup_media_tables import create_lookup_project_to_media, create_media_lookup
 from db.data_integrity import (add_primary_keys,
                                implement_many_to_many_relations,
                                implement_one_to_many_relations)
@@ -126,10 +125,11 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         phase_start = time.time()
         logger.info(f"Implement predecessor-successor - 7a")
         implement_predecessor_successor(target_db_url, target_schema)
-        logger.info(f"Implement project to media mapping - 7b")
+        logger.info(f"Implement media mapping - 7b")
         create_lookup_project_to_media(target_db_url, target_schema)
-        logger.info(f"Link project management to status - 7c")
-        link_project_management_to_status(target_db_url, target_schema)
+        create_media_lookup(target_db_url, target_schema)
+        logger.info(f"Link project management to sources - 7c")
+        link_project_management_to_sources(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 7 completed in {phase_end - phase_start:.2f} seconds")
 
