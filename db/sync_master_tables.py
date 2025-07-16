@@ -6,6 +6,42 @@ from db.data_migrator import migrate_data
 from utils.logger import setup_logger
 
 logger = setup_logger()
+from sqlalchemy import inspect, text
+from sqlalchemy.types import VARCHAR, NVARCHAR
+# other necessary imports (pandas, os, sqlalchemy.create_engine, logging)
+import pandas as pd
+import os
+from sqlalchemy import create_engine
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _resize_text_columns(conn, inspector, schema_name, table_name):
+    """
+    Helper function to inspect and resize VARCHAR/NVARCHAR columns.
+
+    Checks for text columns smaller than 50 characters and alters them to 255.
+    """
+    columns = inspector.get_columns(table_name, schema=schema_name)
+    for col in columns:
+        is_string_type = isinstance(col['type'], (VARCHAR, NVARCHAR))
+        
+        # Condition: Is it a string type with a defined length less than 50?
+        if is_string_type and col['type'].length is not None and col['type'].length < 255:
+            
+            # Get the base type name ('VARCHAR' or 'NVARCHAR') to preserve it
+            new_type_name = col['type'].__class__.__name__
+            
+            logger.debug(
+                f"Altering column '{col['name']}' in table '{table_name}' "
+                f"from {new_type_name}({col['type'].length}) to {new_type_name}(255)."
+            )
+            alter_sql = text(
+                f'ALTER TABLE "{schema_name}"."{table_name}" '
+                f'ALTER COLUMN "{col["name"]}" {new_type_name}(255) NULL'
+            )
+            conn.execute(alter_sql)
 
 def drop_master_tables(target_db_url, target_schema):
     """
@@ -105,12 +141,6 @@ def populate_master_tables(target_db_url, schema_name, csv_path="config/master_t
     """
     Refreshes master tables by combining existing data with new data from a CSV,
     then rebuilds the table with a clean, sequential identity column.
-
-    This version will:
-    1.  **Combine Data**: Merges unique values from the database and the CSV file.
-    2.  **Preserve All Unique Values**: No data is permanently lost; it's held in memory.
-    3.  **Wipe and Reset**: Clears the table and resets the ID column to start fresh from 1.
-    4.  **Repopulate**: Inserts the complete, combined dataset into the clean table.
     """
     master_df = pd.read_csv(csv_path)
     engine = create_engine(target_db_url)
@@ -119,13 +149,11 @@ def populate_master_tables(target_db_url, schema_name, csv_path="config/master_t
     with engine.begin() as conn:
         for table_name in master_df.columns:
             try:
-                # === Part 1: Gather and Combine All Data ===
-                
-                # Get clean, unique values from the CSV file
-                csv_values = {val.strip() for val in master_df[table_name].dropna()}
-                logger.debug(f"Found {len(csv_values)} unique values in CSV for '{table_name}'.")
+                # === THE FIX: Resize small text columns before doing anything else ===
+                _resize_text_columns(conn, inspector, schema_name, table_name)
 
-                # Find the target column for data operations
+                # === Part 1: Gather and Combine All Data ===
+                csv_values = {val.strip() for val in master_df[table_name].dropna()}
                 columns = inspector.get_columns(table_name, schema=schema_name)
                 identity_cols = {c["name"] for c in columns if c.get("autoincrement")}
                 target_column = next((c["name"] for c in columns if c["name"] not in identity_cols), None)
@@ -136,30 +164,18 @@ def populate_master_tables(target_db_url, schema_name, csv_path="config/master_t
                 safe_table_identifier = f'"{schema_name}"."{table_name}"'
                 safe_column_identifier = f'"{target_column}"'
 
-                # Fetch all current values from the database table
                 select_sql = text(f"SELECT {safe_column_identifier} FROM {safe_table_identifier};")
                 result = conn.execute(select_sql)
                 existing_values = {row[0] for row in result if row[0] is not None}
-                logger.debug(f"Found {len(existing_values)} existing values in DB for '{table_name}'.")
                 
-                # Combine both sets and sort for consistent ordering
                 final_values = sorted(list(csv_values.union(existing_values)))
-                logger.debug(f"Combined total of {len(final_values)} unique values for '{table_name}'.")
-
 
                 # === Part 2: Wipe the Table and Reset the ID ===
-
-                logger.warning(f"Deleting all data from {safe_table_identifier} to rebuild.")
                 conn.execute(text(f"DELETE FROM {safe_table_identifier};"))
-                
                 if identity_cols:
-                    logger.warning(f"Resetting identity ID for {safe_table_identifier} to start at 1.")
-                    # RESEED, 0 means the next inserted ID will be 1
                     conn.execute(text(f"DBCC CHECKIDENT ('{safe_table_identifier}', RESEED, 0);"))
 
-
-                # === Part 3: Repopulate the Table with the Final, Combined Data ===
-
+                # === Part 3: Repopulate the Table ===
                 for value in final_values:
                     insert_sql = text(f"INSERT INTO {safe_table_identifier} ({safe_column_identifier}) VALUES (:value);")
                     conn.execute(insert_sql, {"value": value})
@@ -168,43 +184,24 @@ def populate_master_tables(target_db_url, schema_name, csv_path="config/master_t
 
             except Exception as e:
                 logger.error(f"Failed to process table {schema_name}.{table_name}: {e}")
-                raise e # Stop execution on error
+                raise e
+
 
 def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/master_tables/"):
     """
     Merges new data from CSV files into their corresponding database tables.
-
-    This function iterates through a folder of CSV files. For each file, it assumes
-    the filename (without the .csv extension) matches a table name. It reads the
-    CSV and compares its rows to the existing rows in the database table. Only the
-    rows that do not already exist in the database are inserted.
-
-    Key Assumptions:
-    - The column names in each CSV file must exactly match the column names in the
-      corresponding database table.
-    - Existing data in the database will NOT be deleted or altered.
-
-    Args:
-        target_db_url (str): The connection string for the target database
-                             (e.g., 'mssql+pyodbc://user:pass@server/db?driver=ODBC+Driver+17+for+SQL+Server').
-        schema_name (str): The name of the database schema where the tables reside.
-        csv_folder_path (str): The path to the folder containing the CSV files to process.
     """
     try:
         engine = create_engine(target_db_url)
+        inspector = inspect(engine) # Create inspector once
         csv_files = [f for f in os.listdir(csv_folder_path) if f.endswith('.csv')]
     except FileNotFoundError:
         logger.error(f"Error: The folder at '{csv_folder_path}' was not found.")
-        raise
-    except ImportError:
-        logger.error("Error: The necessary database driver (e.g., pyodbc) is not installed.")
         raise
         
     if not csv_files:
         logger.warning(f"No CSV files found in '{csv_folder_path}'. No tables were processed.")
         return
-
-    logger.debug(f"Found {len(csv_files)} CSV files to process. Starting merge operation.")
 
     for csv_file in csv_files:
         table_name = os.path.splitext(csv_file)[0]
@@ -212,30 +209,23 @@ def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/mast
         
         try:
             with engine.connect() as conn:
-                # 1. Read the existing data from the database table
-                logger.debug(f"Reading existing data from table: '{schema_name}.{table_name}'...")
+                # === THE FIX: Resize small text columns before reading/writing data ===
+                _resize_text_columns(conn, inspector, schema_name, table_name)
+                
+                # 1. Read existing data
                 existing_data_df = pd.read_sql_table(table_name, conn, schema=schema_name)
                 
-                # 2. Read the new data from the CSV file
+                # 2. Read new data
                 new_data_df = pd.read_csv(file_path)
 
                 if new_data_df.empty:
-                    logger.debug(f"CSV file '{csv_file}' is empty. Skipping.")
                     continue
 
-                # 3. Identify rows in the CSV that are NOT in the database
-                # We perform a left merge to find rows that are unique to the CSV data.
-                merged_df = new_data_df.merge(
-                    existing_data_df, 
-                    how='left', 
-                    indicator=True
-                )
-                
+                # 3. Identify and insert new rows
+                merged_df = new_data_df.merge(existing_data_df, how='left', indicator=True)
                 rows_to_insert = merged_df[merged_df['_merge'] == 'left_only'].drop(columns=['_merge'])
 
-                # 4. Insert only the new rows into the database
                 if not rows_to_insert.empty:
-                    logger.debug(f"Found {len(rows_to_insert)} new row(s) in '{csv_file}'. Inserting into '{table_name}'...")
                     rows_to_insert.to_sql(
                         name=table_name,
                         con=conn,
@@ -243,11 +233,8 @@ def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/mast
                         if_exists='append',
                         index=False
                     )
-                    logger.debug(f"Successfully inserted new data into '{schema_name}.{table_name}'.")
-                else:
-                    logger.debug(f"No new data to insert for '{table_name}'. Database is already up-to-date.")
+                    logger.debug(f"Successfully inserted {len(rows_to_insert)} new rows into '{schema_name}.{table_name}'.")
 
         except Exception as e:
             logger.error(f"Failed to process table '{schema_name}.{table_name}' from file '{csv_file}': {e}")
-            # Continue to the next file instead of stopping the entire process
             continue
