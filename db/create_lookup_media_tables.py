@@ -101,7 +101,7 @@ def create_media_lookup(target_db_url, schema_name, config_csv_path="config/sche
             melted_df = melted_df[melted_df['cell_value'].astype(str).str.strip().ne('[]')]
             
             if melted_df.empty:
-                logger.warning(f"No media data for {source_table}. Table {target_table} will be empty.")
+                logger.debug(f"No media data for {source_table}. Table {target_table} will be empty.")
                 continue
 
             # Use the new flexible parser to handle all supported JSON formats
