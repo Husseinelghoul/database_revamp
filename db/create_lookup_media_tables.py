@@ -76,7 +76,7 @@ def create_media_lookup(target_db_url, schema_name, config_csv_path="config/sche
             full_source_name = f'"{schema_name}"."{source_table}"'
             full_target_name = f'"{schema_name}"."{target_table}"'
             
-            logger.info(f"--- Starting task: {source_table} -> {target_table} ---")
+            logger.debug(f"--- Starting task: {source_table} -> {target_table} ---")
 
             with engine.begin() as conn:
                 conn.execute(text(f'DROP TABLE IF EXISTS {full_target_name};'))
@@ -122,16 +122,16 @@ def create_media_lookup(target_db_url, schema_name, config_csv_path="config/sche
             output_df = output_df[output_df['file_path'] != '']
             
             if not output_df.empty:
-                logger.info(f"Inserting {len(output_df)} records into {full_target_name}...")
+                logger.debug(f"Inserting {len(output_df)} records into {full_target_name}...")
                 output_df.to_sql(name=target_table, con=engine, schema=schema_name, if_exists='append', index=False, chunksize=500)
             
-            logger.info(f"--- Successfully completed task: {source_table} -> {target_table} ---")
+            logger.debug(f"--- Successfully completed task: {source_table} -> {target_table} ---")
 
         except Exception as e:
-            logger.error(f"Error on row {index} ({source_table}): {e}", exc_info=True)
+            logger.error(f"Error on row {index} ({source_table}): {e}", exc_debug=True)
             continue
             
-    logger.info("All media lookup tasks from configuration file processed.")
+    logger.debug("All media lookup tasks from configuration file processed.")
 
 
 # --- ORIGINAL STATIC FUNCTION (FULLY FIXED) ---
@@ -228,11 +228,11 @@ def create_lookup_project_to_media(target_db_url, schema_name):
         output_df.dropna(subset=['file_path'], inplace=True)
         output_df = output_df[output_df['file_path'] != '']
 
-        logger.info(f"Processed data. Inserting {len(output_df)} records into the database...")
+        logger.debug(f"Processed data. Inserting {len(output_df)} records into the database...")
         output_df.to_sql(name='lookup_project_to_media', con=engine, schema=schema_name, if_exists='append', index=False, chunksize=400)
         
         logger.debug("Successfully created and populated the media lookup table.")
 
     except Exception as e:
-        logger.error(f"A critical error occurred during media lookup creation: {e}", exc_info=True)
+        logger.error(f"A critical error occurred during media lookup creation: {e}", exc_debug=True)
         raise

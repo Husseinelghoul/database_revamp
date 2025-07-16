@@ -10,7 +10,7 @@ def drop_tables(target_db_url, schema_name, application: str, csv_path="config/s
     drops_df = load_schema_changes(csv_path)
     drops_df = drops_df[drops_df["database"].isin([application, 'both'])]
     if drops_df.empty:
-        logger.info(f"No tables to drop for {application}.")
+        logger.debug(f"No tables to drop for {application}.")
         return
     engine = create_engine(target_db_url)
     with engine.begin() as conn:
@@ -27,7 +27,7 @@ def drop_columns(target_db_url, schema_name, application: str, csv_path="config/
     if "database" in drops_df.columns:
         drops_df = drops_df[drops_df["database"] == application]
     if drops_df.empty:
-        logger.info(f"No columns to drop for {application}.")
+        logger.debug(f"No columns to drop for {application}.")
         return
     
     engine = create_engine(target_db_url)

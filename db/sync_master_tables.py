@@ -123,7 +123,7 @@ def populate_master_tables(target_db_url, schema_name, csv_path="config/master_t
                 
                 # Get clean, unique values from the CSV file
                 csv_values = {val.strip() for val in master_df[table_name].dropna()}
-                logger.info(f"Found {len(csv_values)} unique values in CSV for '{table_name}'.")
+                logger.debug(f"Found {len(csv_values)} unique values in CSV for '{table_name}'.")
 
                 # Find the target column for data operations
                 columns = inspector.get_columns(table_name, schema=schema_name)
@@ -140,11 +140,11 @@ def populate_master_tables(target_db_url, schema_name, csv_path="config/master_t
                 select_sql = text(f"SELECT {safe_column_identifier} FROM {safe_table_identifier};")
                 result = conn.execute(select_sql)
                 existing_values = {row[0] for row in result if row[0] is not None}
-                logger.info(f"Found {len(existing_values)} existing values in DB for '{table_name}'.")
+                logger.debug(f"Found {len(existing_values)} existing values in DB for '{table_name}'.")
                 
                 # Combine both sets and sort for consistent ordering
                 final_values = sorted(list(csv_values.union(existing_values)))
-                logger.info(f"Combined total of {len(final_values)} unique values for '{table_name}'.")
+                logger.debug(f"Combined total of {len(final_values)} unique values for '{table_name}'.")
 
 
                 # === Part 2: Wipe the Table and Reset the ID ===
@@ -164,7 +164,7 @@ def populate_master_tables(target_db_url, schema_name, csv_path="config/master_t
                     insert_sql = text(f"INSERT INTO {safe_table_identifier} ({safe_column_identifier}) VALUES (:value);")
                     conn.execute(insert_sql, {"value": value})
                 
-                logger.info(f"Successfully rebuilt {safe_table_identifier} with {len(final_values)} total values.")
+                logger.debug(f"Successfully rebuilt {safe_table_identifier} with {len(final_values)} total values.")
 
             except Exception as e:
                 logger.error(f"Failed to process table {schema_name}.{table_name}: {e}")
@@ -204,7 +204,7 @@ def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/mast
         logger.warning(f"No CSV files found in '{csv_folder_path}'. No tables were processed.")
         return
 
-    logger.info(f"Found {len(csv_files)} CSV files to process. Starting merge operation.")
+    logger.debug(f"Found {len(csv_files)} CSV files to process. Starting merge operation.")
 
     for csv_file in csv_files:
         table_name = os.path.splitext(csv_file)[0]
@@ -213,14 +213,14 @@ def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/mast
         try:
             with engine.connect() as conn:
                 # 1. Read the existing data from the database table
-                logger.info(f"Reading existing data from table: '{schema_name}.{table_name}'...")
+                logger.debug(f"Reading existing data from table: '{schema_name}.{table_name}'...")
                 existing_data_df = pd.read_sql_table(table_name, conn, schema=schema_name)
                 
                 # 2. Read the new data from the CSV file
                 new_data_df = pd.read_csv(file_path)
 
                 if new_data_df.empty:
-                    logger.info(f"CSV file '{csv_file}' is empty. Skipping.")
+                    logger.debug(f"CSV file '{csv_file}' is empty. Skipping.")
                     continue
 
                 # 3. Identify rows in the CSV that are NOT in the database
@@ -235,7 +235,7 @@ def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/mast
 
                 # 4. Insert only the new rows into the database
                 if not rows_to_insert.empty:
-                    logger.info(f"Found {len(rows_to_insert)} new row(s) in '{csv_file}'. Inserting into '{table_name}'...")
+                    logger.debug(f"Found {len(rows_to_insert)} new row(s) in '{csv_file}'. Inserting into '{table_name}'...")
                     rows_to_insert.to_sql(
                         name=table_name,
                         con=conn,
@@ -243,9 +243,9 @@ def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/mast
                         if_exists='append',
                         index=False
                     )
-                    logger.info(f"Successfully inserted new data into '{schema_name}.{table_name}'.")
+                    logger.debug(f"Successfully inserted new data into '{schema_name}.{table_name}'.")
                 else:
-                    logger.info(f"No new data to insert for '{table_name}'. Database is already up-to-date.")
+                    logger.debug(f"No new data to insert for '{table_name}'. Database is already up-to-date.")
 
         except Exception as e:
             logger.error(f"Failed to process table '{schema_name}.{table_name}' from file '{csv_file}': {e}")

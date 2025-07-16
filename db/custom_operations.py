@@ -229,7 +229,7 @@ def link_project_management_to_sources(target_db_url, schema_name):
                     AND pm.phase = ps.phase;
             """)
             status_result = conn.execute(update_status_sql)
-            logger.info(f"Linked {status_result.rowcount} rows to project_status.")
+            logger.debug(f"Linked {status_result.rowcount} rows to project_status.")
 
             # --- Link to project_summary ---
             logger.debug("Updating project_management with IDs from project_summary...")
@@ -242,9 +242,9 @@ def link_project_management_to_sources(target_db_url, schema_name):
                     AND pm.period = psum.period;
             """)
             summary_result = conn.execute(update_summary_sql)
-            logger.info(f"Linked {summary_result.rowcount} rows to project_summary.")
+            logger.debug(f"Linked {summary_result.rowcount} rows to project_summary.")
 
-        logger.info("Project management linking process completed successfully.")
+        logger.debug("Project management linking process completed successfully.")
 
     except Exception as e:
         logger.error(f"A critical error occurred during the project management linking process: {e}", exc_info=True)
