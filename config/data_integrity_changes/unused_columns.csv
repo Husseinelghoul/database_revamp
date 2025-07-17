@@ -76,3 +76,6 @@ project_management,phase
 feedback,feedback_attachments
 project_milestone,letter_reference_attachment
 project_status,pte_attachment
+project_status,forecast_completion_last_week
+project_status,actual_progress_percentage_of_last_week
+project_status,actual_progress_percentage_for_last_week
