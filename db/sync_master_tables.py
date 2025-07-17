@@ -209,9 +209,6 @@ def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/mast
         
         try:
             with engine.connect() as conn:
-                # === THE FIX: Resize small text columns before reading/writing data ===
-                _resize_text_columns(conn, inspector, schema_name, table_name)
-                
                 # 1. Read existing data
                 existing_data_df = pd.read_sql_table(table_name, conn, schema=schema_name)
                 
@@ -220,6 +217,24 @@ def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/mast
 
                 if new_data_df.empty:
                     continue
+
+                # === THE FIX: Align data types before merging ===
+                db_dtypes = existing_data_df.dtypes
+                for col in new_data_df.columns.intersection(db_dtypes.index):
+                    target_dtype = db_dtypes[col]
+                    if new_data_df[col].dtype != target_dtype:
+                        try:
+                            # Use pd.to_numeric for robust conversion of number types
+                            if pd.api.types.is_numeric_dtype(target_dtype):
+                                # 'coerce' will turn non-numeric values into NaN
+                                new_data_df[col] = pd.to_numeric(new_data_df[col], errors='coerce')
+                            
+                            # Cast to the exact target type from the database
+                            new_data_df = new_data_df.astype({col: target_dtype})
+                            logger.debug(f"Converted column '{col}' to {target_dtype} for {csv_file}")
+                        except Exception as e:
+                            logger.warning(f"Could not cast column '{col}' in {csv_file} to {target_dtype}. Error: {e}")
+                # === END OF FIX ===
 
                 # 3. Identify and insert new rows
                 merged_df = new_data_df.merge(existing_data_df, how='left', indicator=True)
@@ -234,6 +249,82 @@ def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/mast
                         index=False
                     )
                     logger.debug(f"Successfully inserted {len(rows_to_insert)} new rows into '{schema_name}.{table_name}'.")
+
+        except Exception as e:
+            logger.error(f"Failed to process table '{schema_name}.{table_name}' from file '{csv_file}': {e}")
+            continue
+
+def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/master_tables/"):
+    """
+    Merges new data from CSV files into their corresponding database tables.
+    """
+    try:
+        engine = create_engine(target_db_url)
+        inspector = inspect(engine)
+        csv_files = [f for f in os.listdir(csv_folder_path) if f.endswith('.csv')]
+    except FileNotFoundError:
+        logger.error(f"Error: The folder at '{csv_folder_path}' was not found.")
+        raise
+        
+    if not csv_files:
+        logger.warning(f"No CSV files found in '{csv_folder_path}'. No tables were processed.")
+        return
+
+    for csv_file in csv_files:
+        table_name = os.path.splitext(csv_file)[0]
+        file_path = os.path.join(csv_folder_path, csv_file)
+        
+        try:
+            with engine.connect() as conn:
+                # 1. Read existing data and schema info
+                existing_data_df = pd.read_sql_table(table_name, conn, schema=schema_name)
+                db_dtypes = existing_data_df.dtypes
+                
+                # 2. Read new data
+                new_data_df = pd.read_csv(file_path)
+
+                if new_data_df.empty:
+                    logger.info(f"CSV file '{csv_file}' is empty. Skipping.")
+                    continue
+
+                # 3. Align data types
+                for col in new_data_df.columns.intersection(db_dtypes.index):
+                    target_dtype = db_dtypes[col]
+                    if new_data_df[col].dtype != target_dtype:
+                        try:
+                            if pd.api.types.is_numeric_dtype(target_dtype):
+                                new_data_df[col] = pd.to_numeric(new_data_df[col], errors='coerce')
+                            new_data_df = new_data_df.astype({col: target_dtype})
+                        except Exception as e:
+                            logger.warning(f"Could not cast column '{col}' in {csv_file} to {target_dtype}. Error: {e}")
+
+                # 4. Identify new rows
+                merged_df = new_data_df.merge(existing_data_df, how='left', indicator=True)
+                rows_to_insert = merged_df[merged_df['_merge'] == 'left_only'].drop(columns=['_merge'])
+
+                if not rows_to_insert.empty:
+                    # === THE FIX: Remove identity column before insert ===
+                    # Dynamically find the table's identity/autoincrementing column(s).
+                    identity_cols = [
+                        col['name'] for col in inspector.get_columns(table_name, schema=schema_name)
+                        if col.get('autoincrement', False)
+                    ]
+                    
+                    # Drop the identity column(s) from the DataFrame.
+                    # This lets the database generate the ID automatically.
+                    final_rows_to_insert = rows_to_insert.drop(columns=identity_cols, errors='ignore')
+                    # === END OF FIX ===
+
+                    final_rows_to_insert.to_sql(
+                        name=table_name,
+                        con=conn,
+                        schema=schema_name,
+                        if_exists='append',
+                        index=False
+                    )
+                    logger.info(f"Successfully inserted {len(final_rows_to_insert)} new rows into '{schema_name}.{table_name}'.")
+                else:
+                    logger.info(f"No new rows to insert for table '{schema_name}.{table_name}'.")
 
         except Exception as e:
             logger.error(f"Failed to process table '{schema_name}.{table_name}' from file '{csv_file}': {e}")

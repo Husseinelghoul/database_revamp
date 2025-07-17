@@ -77,8 +77,6 @@ project_status,plan_end_date,varchar,date
 project_status,revised_plan_end_date,varchar,date
 project_status,forecasted_end_date,varchar,date
 project_status,spa_date,varchar,date
-project_status,actual_progress_percentage_of_last_week,varchar,float
-project_status,actual_progress_percentage_for_last_week,varchar,float
 project_status,procurement_start_date,varchar,date
 project_status,project_status_sorting_order,varchar,int
 project_status,eot_to_contractor,varchar,date

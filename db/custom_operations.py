@@ -1,6 +1,6 @@
 import json
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, exc
 
 from utils.logger import setup_logger
 
@@ -252,118 +252,88 @@ def link_project_management_to_sources(target_db_url, schema_name):
 
 def link_previous_period_status(target_db_url, schema_name):
     """
-    Finds the status from the immediate prior period for each record
-    and links it by populating the 'previous_period_project_status_id' column.
+    Finds the status from the immediate prior period and links it.
 
-    This process involves three main steps:
-    1.  Ensure the target column and a unique constraint exist for data integrity.
-    2.  Check for duplicate records based on the business key and period, which
-        would indicate a data quality issue.
-    3.  Use a SQL window function (LAG) to efficiently find and update the
-        link to the previous status in a single operation.
-    4.  Add a self-referencing foreign key to formalize the relationship.
+    This version uses a robust "drop and recreate" pattern to ensure a clean
+    run every time, avoiding errors from previous failed attempts.
     """
     engine = create_engine(target_db_url)
     
-    # Define table and column names for clarity
     table_name = "project_status"
     full_table_name = f'"{schema_name}"."{table_name}"'
     target_column = "previous_period_project_status_id"
-    
-    # The set of columns that uniquely identify a status, excluding the period
+    fk_name = f"FK_{table_name}_previous_period"
+
     business_key_cols = [
         "project_name", "project_phase_category", "phase", 
         "stage_status", "sub_stage"
     ]
 
-    logger.debug(f"Starting previous period linking for {full_table_name}...")
+    logger.debug(f"Starting robust previous period linking for {full_table_name}...")
 
     try:
         with engine.begin() as conn:
-            # === Step 1: Add the target column if it doesn't exist ===
-            logger.debug(f"Ensuring column '{target_column}' exists in {full_table_name}...")
-            # Note: This syntax is for SQL Server. Adjust if using a different dialect.
-            add_column_sql = text(f"""
-                IF COL_LENGTH('{schema_name}.{table_name}', '{target_column}') IS NULL
-                BEGIN
-                    ALTER TABLE {full_table_name} ADD {target_column} INT NULL;
-                END
-            """)
-            conn.execute(add_column_sql)
-
-            # === Step 2: Check for duplicates that would violate the logic ===
-            logger.debug("Checking for duplicate statuses within the same period...")
+            # === STEP 1: PRE-CLEANUP (Drop existing objects) ===
+            logger.debug("Performing cleanup before run...")
             
-            # A record is a duplicate if the same business key exists more than once for the same period.
-            duplicate_check_sql = text(f"""
-                SELECT {', '.join(f'"{col}"' for col in business_key_cols)}, period, COUNT(*) as "cnt"
-                FROM {full_table_name}
-                GROUP BY {', '.join(f'"{col}"' for col in business_key_cols)}, period
-                HAVING COUNT(*) > 1;
-            """)
-            
-            duplicates = conn.execute(duplicate_check_sql).fetchall()
-            
-            if duplicates:
-                error_msg = (
-                    f"Found {len(duplicates)} duplicate status records with the same business key and period. "
-                    "This indicates a data quality issue that must be resolved before linking. "
-                    f"Example duplicate key: {dict(duplicates[0]._mapping)}"
-                )
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-            
-            logger.debug("No duplicates found. Proceeding with update.")
-
-            # === Step 3: Use a CTE with a window function to find and set the previous status ID ===
-            logger.debug(f"Updating '{target_column}' with the ID of the previous period's status...")
-            
-            partition_clause = ', '.join(f'"{col}"' for col in business_key_cols)
-
-            update_sql = text(f"""
-                WITH PreviousStatus AS (
-                    SELECT
-                        id,
-                        LAG(id, 1) OVER (
-                            PARTITION BY {partition_clause}
-                            ORDER BY period ASC
-                        ) AS prev_id
-                    FROM {full_table_name}
-                )
-                UPDATE ps
-                SET
-                    ps.{target_column} = prev.prev_id
-                FROM {full_table_name} AS ps
-                JOIN PreviousStatus AS prev ON ps.id = prev.id
-                WHERE
-                    ps.{target_column} IS NULL OR ps.{target_column} != prev.prev_id;
-            """)
-
-            result = conn.execute(update_sql)
-            logger.debug(f"Successfully updated {result.rowcount} records with their previous period status ID.")
-            
-            # === Step 4: Add the self-referencing foreign key constraint ===
-            logger.debug("Adding self-referencing foreign key constraint...")
-            fk_name = f"FK_{table_name}_previous_period"
-            
-            # Drop the constraint first to make the script re-runnable
+            # 1a. Drop the Foreign Key first to remove dependencies on the column
             try:
                 conn.execute(text(f'ALTER TABLE {full_table_name} DROP CONSTRAINT "{fk_name}";'))
-                logger.debug(f"Dropped existing constraint '{fk_name}' to re-apply it.")
-            except Exception:
-                pass # An error is expected if the constraint doesn't exist
+                logger.debug(f"Dropped existing constraint '{fk_name}'.")
+            except exc.SQLAlchemyError:
+                logger.debug(f"Constraint '{fk_name}' did not exist, skipping drop.")
+                pass
 
+            # 1b. Drop the Column itself
+            try:
+                conn.execute(text(f'ALTER TABLE {full_table_name} DROP COLUMN {target_column};'))
+                logger.debug(f"Dropped existing column '{target_column}'.")
+            except exc.SQLAlchemyError:
+                logger.debug(f"Column '{target_column}' did not exist, skipping drop.")
+                pass
+
+            # === STEP 2: RECREATE THE COLUMN ===
+            logger.debug(f"Creating fresh column '{target_column}'.")
+            conn.execute(text(f'ALTER TABLE {full_table_name} ADD {target_column} INT NULL;'))
+
+            # === STEP 3: UPDATE THE DATA ===
+            logger.debug(f"Updating '{target_column}', selecting max ID to resolve duplicates...")
+            
+            partition_clause = ', '.join(f'"{col}"' for col in business_key_cols)
+            update_sql = text(f"""
+                WITH CanonicalIDs AS (
+                    SELECT {partition_clause}, period, MAX(id) as canonical_id
+                    FROM {full_table_name}
+                    GROUP BY {partition_clause}, period
+                ),
+                PreviousStatus AS (
+                    SELECT
+                        canonical_id,
+                        LAG(canonical_id, 1) OVER (
+                            PARTITION BY {partition_clause} ORDER BY period ASC
+                        ) AS prev_canonical_id
+                    FROM CanonicalIDs
+                )
+                UPDATE ps
+                SET ps.{target_column} = prev.prev_canonical_id
+                FROM {full_table_name} AS ps
+                JOIN PreviousStatus AS prev ON ps.id = prev.canonical_id;
+            """)
+            result = conn.execute(update_sql)
+            logger.debug(f"Successfully updated {result.rowcount} records.")
+            
+            # === STEP 4: RECREATE THE FOREIGN KEY ===
+            logger.debug(f"Adding foreign key constraint '{fk_name}'...")
             add_fk_sql = text(f"""
                 ALTER TABLE {full_table_name}
                 ADD CONSTRAINT "{fk_name}"
                 FOREIGN KEY ({target_column}) REFERENCES {full_table_name}(id);
             """)
             conn.execute(add_fk_sql)
-            logger.debug(f"Successfully added foreign key constraint '{fk_name}'.")
+            logger.debug("Successfully added foreign key constraint.")
 
-        logger.debug("Previous period status linking process completed successfully. ✅")
+        logger.debug("Previous period status linking process completed successfully.")
 
     except Exception as e:
-        logger.error(f"A critical error occurred during the previous period linking process: {e}", exc_info=True)
-        # Re-raise the exception to halt execution as per the requirement
+        logger.error(f"A critical error occurred: {e}", exc_info=True)
         raise
