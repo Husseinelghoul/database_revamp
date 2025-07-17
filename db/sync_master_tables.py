@@ -149,7 +149,6 @@ def populate_master_tables(target_db_url, schema_name, csv_path="config/master_t
     with engine.begin() as conn:
         for table_name in master_df.columns:
             try:
-                # === THE FIX: Resize small text columns before doing anything else ===
                 _resize_text_columns(conn, inspector, schema_name, table_name)
 
                 # === Part 1: Gather and Combine All Data ===
@@ -209,6 +208,8 @@ def merge_master_tables(target_db_url, schema_name, csv_folder_path="config/mast
         
         try:
             with engine.connect() as conn:
+                _resize_text_columns(conn, inspector, schema_name, table_name)
+
                 # 1. Read existing data
                 existing_data_df = pd.read_sql_table(table_name, conn, schema=schema_name)
                 
