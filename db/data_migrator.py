@@ -136,7 +136,7 @@ def migrate_data(
         raise e
 
     for table in list(schema.keys()):
-        if table in dropped_tables:
+        if table in dropped_tables or '2025' in table or 'bkp' in table.lower():
             del schema[table]
     if "Sessions" in schema:
         del schema["Sessions"]
