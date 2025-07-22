@@ -10,18 +10,31 @@ logger = setup_logger()
 
 def add_primary_keys(target_db_url, schema_name):
     """
-    Assertively ensures that for every table with an 'id' column, 'id' is the primary key,
-    EXCLUDING a predefined list of infrastructure tables.
+    For MSSQL, assertively ensures 'id' is the primary key.
+    It also checks if the 'id' column has the IDENTITY property and logs a
+    warning for tables that require manual intervention, as this cannot be
+    safely automated in SQL Server.
     """
     engine = create_engine(target_db_url)
+    dialect_name = engine.dialect.name
+
+    if dialect_name != 'mssql':
+        logger.error(f"This script is specifically tuned for MSSQL. Detected dialect: {dialect_name}.")
+        return
+
     excluded_tables = (
         'app_user', 'user_view_permission', 'user_project', 'user_entity',
         'sessions', 'role_template'
     )
     excluded_tables_sql_str = ", ".join([f"'{table}'" for table in excluded_tables])
+
     discovery_sql = text(f"""
         SELECT
-            t.TABLE_NAME, c.COLUMN_NAME AS IdColumnName, pk.ConstraintName, pk.PkColumnName
+            t.TABLE_NAME,
+            c.COLUMN_NAME AS IdColumnName,
+            pk.ConstraintName,
+            pk.PkColumnName,
+            COLUMNPROPERTY(OBJECT_ID(t.TABLE_SCHEMA + '.' + t.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') AS IsIdentity
         FROM INFORMATION_SCHEMA.TABLES t
         INNER JOIN INFORMATION_SCHEMA.COLUMNS c ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
         LEFT JOIN (
@@ -38,31 +51,46 @@ def add_primary_keys(target_db_url, schema_name):
     try:
         with engine.connect() as conn:
             results = conn.execute(discovery_sql, {"schema_name": schema_name}).fetchall()
-            tables_to_process = [(row[0], row[1], row[2], row[3]) for row in results]
-    except SQLAlchemyError as e:
+            tables_to_process = [(row[0], row[1], row[2], row[3], row[4]) for row in results]
+    except SQLAlchemyError:
         logger.exception(f"Fatal: Failed to query schema information.")
         return
-    if not tables_to_process:
-        logger.debug(f"No tables requiring primary key changes were found in schema '{schema_name}' (after exclusions). No action needed.")
-        return
-    logger.debug(f"Found {len(tables_to_process)} tables that need a primary key on their 'id' column.")
-    with engine.begin() as conn:
-        for table_name, id_column_name, pk_constraint_name, pk_column_name in tables_to_process:
-            full_table_name = f'"{schema_name}"."{table_name}"'
-            if pk_constraint_name and pk_column_name.lower() == id_column_name.lower():
-                logger.debug(f"OK: Primary key on {full_table_name} is already correctly set to '{id_column_name}'.")
-                continue
-            try:
-                if pk_constraint_name:
-                    logger.debug(f"FIXING: {full_table_name} has a PK '{pk_constraint_name}' on the wrong column ('{pk_column_name}'). Dropping it.")
-                    conn.execute(text(f'ALTER TABLE {full_table_name} DROP CONSTRAINT "{pk_constraint_name}";'))
-                logger.debug(f"ACTION: Adding primary key to {full_table_name} on column '{id_column_name}'...")
-                conn.execute(text(f'ALTER TABLE {full_table_name} ALTER COLUMN "{id_column_name}" INT NOT NULL;'))
-                conn.execute(text(f'ALTER TABLE {full_table_name} ADD PRIMARY KEY ("{id_column_name}");'))
-                logger.debug(f"SUCCESS: Primary key for {full_table_name} is now set on '{id_column_name}'.")
-            except SQLAlchemyError:
-                logger.exception(f"FAILED: Could not set primary key for {full_table_name}. The 'id' column might contain NULLs or duplicate values. Skipping this table.")
 
+    if not tables_to_process:
+        logger.debug(f"No tables requiring changes were found in schema '{schema_name}'.")
+        return
+
+    logger.debug(f"Found {len(tables_to_process)} tables to process for PK and IDENTITY checks.")
+    with engine.begin() as conn:
+        for table_name, id_column_name, pk_constraint_name, pk_column_name, is_identity in tables_to_process:
+            # For MSSQL, schema and table names need to be in brackets for safety
+            full_table_name = f'[{schema_name}].[{table_name}]'
+            is_pk_correct = pk_constraint_name and pk_column_name.lower() == id_column_name.lower()
+            # is_identity returns 1 if it's an identity column, 0 if not.
+            is_identity_correct = is_identity == 1
+
+            if is_pk_correct and is_identity_correct:
+                logger.debug(f"OK: {full_table_name} is already configured correctly.")
+                continue
+
+            # Log a clear warning for the missing IDENTITY property
+            if not is_identity_correct:
+                logger.warning(f"MANUAL FIX REQUIRED: {full_table_name} column '{id_column_name}' is not an IDENTITY column. This cannot be fixed automatically.")
+
+            try:
+                # Fix the Primary Key, which *can* be automated
+                if not is_pk_correct:
+                    if pk_constraint_name:
+                        logger.debug(f"FIXING: {full_table_name} has a PK on the wrong column. Dropping '{pk_constraint_name}'.")
+                        conn.execute(text(f'ALTER TABLE {full_table_name} DROP CONSTRAINT "{pk_constraint_name}";'))
+
+                    logger.debug(f"ACTION: Adding primary key to {full_table_name} on column '{id_column_name}'...")
+                    conn.execute(text(f'ALTER TABLE {full_table_name} ALTER COLUMN "{id_column_name}" INT NOT NULL;'))
+                    conn.execute(text(f'ALTER TABLE {full_table_name} ADD PRIMARY KEY ("{id_column_name}");'))
+                    logger.debug(f"SUCCESS: Primary key for {full_table_name} is now set.")
+
+            except SQLAlchemyError:
+                logger.exception(f"FAILED to set primary key for {full_table_name}. Skipping this table.")
 
 def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/one_to_many_relations.csv"):
     """
