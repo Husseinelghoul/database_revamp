@@ -14,17 +14,24 @@ logger = setup_logger()
 def _convert_varchar_to_nvarchar(conn, schema_name: str):
     """
     Finds all VARCHAR columns in a schema and converts them to NVARCHAR,
-    preserving their original length.
+    preserving their original length. This version correctly ignores views.
     """
+    logger.debug("Phase 1: Converting VARCHAR columns to NVARCHAR...")
+    # --- THE FIX: Join to INFORMATION_SCHEMA.TABLES to select only from actual tables ---
     varchar_query = text(f"""
-        SELECT TABLE_NAME, COLUMN_NAME, CHARACTER_MAXIMUM_LENGTH
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = '{schema_name}' AND DATA_TYPE = 'varchar';
+        SELECT c.TABLE_NAME, c.COLUMN_NAME, c.CHARACTER_MAXIMUM_LENGTH
+        FROM INFORMATION_SCHEMA.COLUMNS AS c
+        JOIN INFORMATION_SCHEMA.TABLES AS t 
+            ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
+        WHERE 
+            t.TABLE_TYPE = 'BASE TABLE'
+            AND c.TABLE_SCHEMA = '{schema_name}' 
+            AND c.DATA_TYPE = 'varchar';
     """)
     
     varchar_columns = conn.execute(varchar_query).fetchall()
     if not varchar_columns:
-        logger.debug("No VARCHAR columns found to convert.")
+        logger.debug("No VARCHAR columns found in tables to convert.")
         return
 
     logger.debug(f"Found {len(varchar_columns)} VARCHAR columns to convert to NVARCHAR.")
@@ -33,20 +40,30 @@ def _convert_varchar_to_nvarchar(conn, schema_name: str):
         logger.debug(f"Converting {schema_name}.{table}.{column} to NVARCHAR{length_def}")
         alter_sql = text(f'ALTER TABLE "{schema_name}"."{table}" ALTER COLUMN "{column}" NVARCHAR{length_def}')
         conn.execute(alter_sql)
+    logger.debug("Phase 1: VARCHAR to NVARCHAR conversion complete.")
+
 
 def _convert_text_to_nvarchar_max(conn, schema_name: str):
     """
     Finds all TEXT or NTEXT columns in a schema and converts them to NVARCHAR(MAX).
+    This version correctly ignores views.
     """
+    logger.debug("Phase 2: Converting TEXT/NTEXT columns to NVARCHAR(MAX)...")
+    # --- THE FIX: Join to INFORMATION_SCHEMA.TABLES to select only from actual tables ---
     text_query = text(f"""
-        SELECT TABLE_NAME, COLUMN_NAME
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = '{schema_name}' AND DATA_TYPE IN ('text', 'ntext');
+        SELECT c.TABLE_NAME, c.COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS AS c
+        JOIN INFORMATION_SCHEMA.TABLES AS t 
+            ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
+        WHERE
+            t.TABLE_TYPE = 'BASE TABLE'
+            AND c.TABLE_SCHEMA = '{schema_name}' 
+            AND c.DATA_TYPE IN ('text', 'ntext');
     """)
     
     text_columns = conn.execute(text_query).fetchall()
     if not text_columns:
-        logger.debug("No TEXT or NTEXT columns found to convert.")
+        logger.debug("No TEXT or NTEXT columns found in tables to convert.")
         return
 
     logger.debug(f"Found {len(text_columns)} TEXT/NTEXT columns to convert to NVARCHAR(MAX).")
@@ -54,6 +71,7 @@ def _convert_text_to_nvarchar_max(conn, schema_name: str):
         logger.debug(f"Converting {schema_name}.{table}.{column} to NVARCHAR(MAX)")
         alter_sql = text(f'ALTER TABLE "{schema_name}"."{table}" ALTER COLUMN "{column}" NVARCHAR(MAX)')
         conn.execute(alter_sql)
+    logger.debug("Phase 2: TEXT to NVARCHAR(MAX) conversion complete.")
 
 def _apply_changes_from_csv(engine, conn, schema_name: str, csv_path: str):
     """
