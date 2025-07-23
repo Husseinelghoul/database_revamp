@@ -1,3 +1,5 @@
 table_name,column_name,constraint_type,value
 project_sustainability,pearl_rating_percentage,MAX,8
 project_sustainability,pearl_rating_percentage,MIN,0
+project_summary,period;project_name,UNIQUE,
+project_status,period;project_name;stage;sub_stage;phase;project_phase_category,UNIQUE,

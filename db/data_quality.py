@@ -1,5 +1,7 @@
+from collections import defaultdict
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from utils.logger import setup_logger
 from utils.utils import clean_column_for_datetime_conversion
@@ -122,43 +124,172 @@ def change_data_types(target_db_url: str, schema_name: str, csv_path: str = "con
         
         logger.debug("All schema changes processed successfully.")
 
-def apply_constraints(target_db_url, schema_name, csv_path="config/data_quality_changes/constraints.csv"):
+def _drop_existing_constraints(conn, schema_name):
     """
-    Apply constraints (MAX, MIN, UNIQUE) based on constraints.csv.
-    Columns: table_name, column_name, constraint_type, value
+    Finds and drops all existing CHECK and UNIQUE constraints in the schema.
+    This ensures a clean slate before applying new rules.
     """
-    constraints_df = load_schema_changes(csv_path)
+    logger.info(f"Dropping all existing CHECK and UNIQUE constraints in schema '{schema_name}'...")
+    
+    # Query to find all constraints to drop (excluding Foreign Keys and Primary Keys)
+    constraints_to_drop_query = text("""
+        SELECT TABLE_NAME, CONSTRAINT_NAME
+        FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+        WHERE CONSTRAINT_SCHEMA = :schema
+          AND CONSTRAINT_TYPE IN ('CHECK', 'UNIQUE');
+    """)
+    
+    try:
+        constraints = conn.execute(constraints_to_drop_query, {"schema": schema_name}).fetchall()
+        if not constraints:
+            logger.info("No existing CHECK or UNIQUE constraints to drop.")
+            return
 
-    engine = create_engine(target_db_url)
-    with engine.begin() as conn:
-        for _, row in constraints_df.iterrows():
-            table = row['table_name']
-            column = row['column_name']
-            constraint_type = row['constraint_type'].upper()
-            value = row.get('value')  # May be NaN for UNIQUE
-
+        logger.debug(f"Found {len(constraints)} constraints to drop.")
+        for table, constraint_name in constraints:
             try:
-                if constraint_type == "MAX":
-                    sql = f"""
-                        ALTER TABLE {schema_name}.{table}
-                        ADD CONSTRAINT CK_{table}_{column}_max CHECK ({column} <= {value});
-                    """
-                elif constraint_type == "MIN":
-                    sql = f"""
-                        ALTER TABLE {schema_name}.{table}
-                        ADD CONSTRAINT CK_{table}_{column}_min CHECK ({column} >= {value});
-                    """
-                elif constraint_type == "UNIQUE":
-                    sql = f"""
-                        ALTER TABLE {schema_name}.{table}
-                        ADD CONSTRAINT UQ_{table}_{column} UNIQUE ({column});
-                    """
-                else:
-                    logger.warning(f"Unknown constraint type '{constraint_type}' for {schema_name}.{table}.{column}")
-                    continue
+                drop_sql = f'ALTER TABLE "{schema_name}"."{table}" DROP CONSTRAINT "{constraint_name}";'
+                conn.execute(text(drop_sql))
+                logger.debug(f"Dropped constraint '{constraint_name}' from table '{table}'.")
+            except SQLAlchemyError as e:
+                logger.warning(f"Could not drop constraint '{constraint_name}' from '{table}'. It might be in use. Error: {e.orig}")
+        logger.info("Finished dropping existing constraints.")
+    except Exception as e:
+        logger.error(f"Failed during the constraint dropping phase: {e}")
+        raise
 
-                conn.execute(text(sql))
-                logger.debug(f"Applied {constraint_type} constraint on {schema_name}.{table}.{column}")
-            except Exception as e:
-                logger.error(f"Failed to apply constraint on {schema_name}.{table}.{column}: {e}")
-                raise
+def _apply_automatic_date_rules(conn, schema_name):
+    """
+    Finds all date/datetime columns and applies a MIN YEAR 2000 CHECK constraint.
+    """
+    logger.info("Applying automatic date constraints (MIN YEAR 2000)...")
+    date_cols_query = text("""
+        SELECT TABLE_NAME, COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = :schema
+          AND DATA_TYPE IN ('date', 'datetime', 'datetime2', 'smalldatetime')
+          AND COLUMN_NAME NOT IN ('last_updated');
+    """)
+    date_columns_to_check = conn.execute(date_cols_query, {"schema": schema_name}).fetchall()
+
+    for table, column in date_columns_to_check:
+        full_column_path = f'"{schema_name}"."{table}"."{column}"'
+        
+        find_old_dates_sql = text(f'SELECT COUNT(*) FROM "{schema_name}"."{table}" WHERE "{column}" < \'2000-01-01\';')
+        if conn.execute(find_old_dates_sql).scalar() > 0:
+            logger.warning(f"Found dates before 2000 in {full_column_path}. Setting them to NULL.")
+            clean_sql = text(f'UPDATE "{schema_name}"."{table}" SET "{column}" = NULL WHERE "{column}" < \'2000-01-01\';')
+            conn.execute(clean_sql)
+
+        constraint_name = f"CK_{table}_{column}_min_year_2000"
+        add_constraint_sql = text(f"""
+            ALTER TABLE "{schema_name}"."{table}"
+            ADD CONSTRAINT "{constraint_name}" CHECK ("{column}" IS NULL OR "{column}" >= '2000-01-01');
+        """)
+        try:
+            conn.execute(add_constraint_sql)
+            logger.debug(f"SUCCESS: Applied MIN YEAR 2000 constraint to {full_column_path}")
+        except SQLAlchemyError as e:
+            # This logic is now handled by the _drop_existing_constraints function,
+            # but we keep this as a safeguard against race conditions or other issues.
+            if "already exists" in str(e).lower():
+                 logger.debug(f"Constraint '{constraint_name}' already exists on {full_column_path}. This should have been dropped; skipping.")
+            else:
+                logger.warning(f"Could not apply date constraint to {full_column_path}. Reason: {e.orig}")
+
+def _clean_data_for_table(conn, schema_name, table, rules):
+    """Builds and executes a single bulk UPDATE statement to clean data for one table."""
+    update_conditions = defaultdict(list)
+    for rule in rules:
+        column_name = str(rule['column_name']).strip()
+        constraint_type = str(rule['constraint_type']).upper()
+        value = rule.get('value')
+
+        if ";" in column_name or pd.isna(value): continue
+
+        if constraint_type == "MAX":
+            update_conditions[column_name].append(f'"{column_name}" > {value}')
+        elif constraint_type == "MIN":
+            update_conditions[column_name].append(f'"{column_name}" < {value}')
+    
+    if update_conditions:
+        set_clauses = []
+        for col, conditions in update_conditions.items():
+            full_condition = " OR ".join(conditions)
+            set_clauses.append(f'"{col}" = CASE WHEN {full_condition} THEN NULL ELSE "{col}" END')
+        
+        clean_sql = f'UPDATE "{schema_name}"."{table}" SET {", ".join(set_clauses)};'
+        logger.debug(f"Executing bulk data cleaning for table '{table}'...")
+        conn.execute(text(clean_sql))
+
+def _apply_constraints_for_table(conn, schema_name, table, rules):
+    """Applies all constraints for a single table, one by one."""
+    full_table_name = f'"{schema_name}"."{table}"'
+    
+    for rule in rules:
+        column_name_raw = str(rule['column_name']).strip()
+        constraint_type = str(rule['constraint_type']).upper()
+        value = rule.get('value')
+        alter_sql = ""
+
+        if constraint_type == "MAX":
+            constraint_name = f"CK_{table}_{column_name_raw}_max"
+            alter_sql = f'ALTER TABLE {full_table_name} ADD CONSTRAINT "{constraint_name}" CHECK ("{column_name_raw}" <= {value})'
+        elif constraint_type == "MIN":
+            constraint_name = f"CK_{table}_{column_name_raw}_min"
+            alter_sql = f'ALTER TABLE {full_table_name} ADD CONSTRAINT "{constraint_name}" CHECK ("{column_name_raw}" >= {value})'
+        elif constraint_type == "UNIQUE":
+            cols_for_unique = [c.strip() for c in column_name_raw.split(';')]
+            cols_tuple_sql = ", ".join([f"'{c}'" for c in cols_for_unique])
+            types_query = text(f"SELECT COLUMN_NAME, CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '{schema_name}' AND TABLE_NAME = '{table}' AND COLUMN_NAME IN ({cols_tuple_sql})")
+            col_types = conn.execute(types_query).fetchall()
+            
+            if any(max_len == -1 for _, max_len in col_types):
+                logger.warning(f"Cannot create UNIQUE constraint on '{full_table_name}' for columns {cols_for_unique} because one has a MAX data type. Skipping.")
+                continue
+
+            unique_cols_sql = ", ".join([f'"{c}"' for c in cols_for_unique])
+            constraint_name_cols = '_'.join(cols_for_unique)
+            constraint_name = f"UQ_{table}_{constraint_name_cols}"
+            alter_sql = f'ALTER TABLE {full_table_name} ADD CONSTRAINT "{constraint_name}" UNIQUE ({unique_cols_sql})'
+
+        if alter_sql:
+            try:
+                logger.debug(f"Applying constraint '{constraint_name}' to {full_table_name}...")
+                conn.execute(text(alter_sql))
+            except SQLAlchemyError as e:
+                logger.warning(f"Could not apply constraint '{constraint_name}' to {full_table_name}. Reason: {e.orig}")
+
+def apply_data_quality_rules(target_db_url: str, schema_name: str, csv_path: str = "config/data_quality_changes/constraints.csv"):
+    """
+    Orchestrates the application of data quality rules from CSV and automatic date checks.
+    """
+    engine = create_engine(target_db_url)
+    
+    with engine.begin() as conn:
+        # Part 1: Drop all existing CHECK and UNIQUE constraints for a clean slate.
+        _drop_existing_constraints(conn, schema_name)
+        
+        # Part 2: Handle automatic date constraints
+        # *** FIX: Removed the extra argument from the function call ***
+        _apply_automatic_date_rules(conn, schema_name)
+
+        # Part 3: Handle CSV-based constraints
+        logger.info("Starting CSV-based constraint application...")
+        constraints_df = load_schema_changes(csv_path)
+        if constraints_df.empty:
+            logger.info("No constraints found in CSV file. Skipping.")
+            return
+            
+        grouped_constraints = constraints_df.groupby('table_name')
+        
+        for table, group_df in grouped_constraints:
+            logger.info(f"Processing CSV constraints for table: {table}")
+            try:
+                # Clean all data for this table based on all its rules
+                _clean_data_for_table(conn, schema_name, table, group_df.to_dict('records'))
+                # Apply all constraints for this table
+                _apply_constraints_for_table(conn, schema_name, table, group_df.to_dict('records'))
+            except SQLAlchemyError as e:
+                logger.warning(f"A failure occurred while processing table {table}. All changes for this table were rolled back. Error: {e}")
+                continue

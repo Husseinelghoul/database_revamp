@@ -7,7 +7,7 @@ from db.data_integrity import (add_primary_keys,
                                implement_many_to_many_relations,
                                implement_one_to_many_relations)
 from db.data_migrator import migrate_data
-from db.data_quality import apply_constraints, change_data_types
+from db.data_quality import apply_data_quality_rules, change_data_types
 from db.database_optimization import create_project_period_indexes
 from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
@@ -161,7 +161,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info(f"Changing Data Types - 9a")
         change_data_types(target_db_url, target_schema)
         logger.info(f"Applying Constraints - 9b")
-        # apply_constraints(target_db_url, target_schema)
+        # c(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 9 completed in {phase_end - phase_start:.2f} seconds")
 
