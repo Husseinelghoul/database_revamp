@@ -117,53 +117,52 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         add_primary_keys(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 6 completed in {phase_end - phase_start:.2f} seconds")
-
-    # Phase 7 Custom changes
+    # Phase 7: Data Quality Changes
     if "phase7" in phases_to_skip:
-        logger.info("Skipping Phase 7: Custom changes")
+        logger.info("Skipping Phase 7: Data Quality Changes")
     else:
         phase_start = time.time()
-        logger.info(f"Implement predecessor-successor - 7a")
-        implement_predecessor_successor(target_db_url, target_schema)
-        logger.info(f"Implement media mapping - 7b")
-        create_lookup_project_to_media(target_db_url, target_schema)
-        create_media_lookup(target_db_url, target_schema)
-        logger.info(f"Link project management to sources - 7c")
-        link_project_management_to_sources(target_db_url, target_schema)
+        logger.info(f"Phase 7: Data Quality Changes")
+        logger.info(f"Changing Data Types - 7a")
+        change_data_types(target_db_url, target_schema)
+        logger.info(f"Applying Constraints - 7b")
+        # apply_data_quality_rules(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 7 completed in {phase_end - phase_start:.2f} seconds")
 
-    # Phase 8: Add Foreing Keys for Master Tables
+    # Phase 8 Custom changes
     if "phase8" in phases_to_skip:
-        logger.info("Skipping Phase 8: Add Foreing Keys for Master Tables")
+        logger.info("Skipping Phase 8: Custom changes")
     else:
         phase_start = time.time()
-        logger.info(f"Phase 8: Add Foreing Keys for Master Tables")
-        logger.info(f"Populating master tables - 8a")
-        populate_master_tables(target_db_url, target_schema)
-        logger.info(f"Merging master tables - 8b")
-        merge_master_tables(target_db_url, target_schema)
-        logger.info(f"Implementing one to many relations - 8c")
-        implement_one_to_many_relations(target_db_url, target_schema)
-        logger.info(f"Implementing many to many relations - 8d")
-        implement_many_to_many_relations(target_db_url, target_schema)
-        logger.info(f"Dropping unused columns - 8e")
-        drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/unused_columns.csv")
+        logger.info(f"Implement predecessor-successor - 8a")
+        implement_predecessor_successor(target_db_url, target_schema)
+        logger.info(f"Implement media mapping - 8b")
+        create_lookup_project_to_media(target_db_url, target_schema)
+        create_media_lookup(target_db_url, target_schema)
+        logger.info(f"Link project management to sources - 8c")
+        link_project_management_to_sources(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 8 completed in {phase_end - phase_start:.2f} seconds")
 
-    # Phase 9: Data Quality Changes
+    # Phase 9: Add Foreing Keys for Master Tables
     if "phase9" in phases_to_skip:
-        logger.info("Skipping Phase 9: Data Quality Changes")
+        logger.info("Skipping Phase 9: Add Foreing Keys for Master Tables")
     else:
         phase_start = time.time()
-        logger.info(f"Phase 9: Data Quality Changes")
-        logger.info(f"Changing Data Types - 9a")
-        change_data_types(target_db_url, target_schema)
-        logger.info(f"Applying Constraints - 9b")
-        # c(target_db_url, target_schema)
+        logger.info(f"Phase 9: Add Foreing Keys for Master Tables")
+        logger.info(f"Populating master tables - 9a")
+        populate_master_tables(target_db_url, target_schema)
+        logger.info(f"Merging master tables - 9b")
+        merge_master_tables(target_db_url, target_schema)
+        logger.info(f"Implementing one to many relations - 9c")
+        implement_one_to_many_relations(target_db_url, target_schema)
+        logger.info(f"Implementing many to many relations - 9d")
+        implement_many_to_many_relations(target_db_url, target_schema)
+        logger.info(f"Dropping unused columns - 9e")
+        drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/unused_columns.csv")
         phase_end = time.time()
-        logger.info(f"Phase 9 completed in {phase_end - phase_start:.2f} seconds")
+        logger.info(f"Phase 8 completed in {phase_end - phase_start:.2f} seconds")
 
     # Phase 10: Implementing Indexes
     if "phase10" in phases_to_skip:
