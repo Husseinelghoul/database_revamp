@@ -122,8 +122,6 @@ def split_tables(target_db_url, schema_name, csv_path="config/schema_changes/tab
             total_rows_processed = 0
             for source_chunk_df in pd.read_sql_query(sql_query, engine, chunksize=CHUNK_SIZE):
                 total_rows_processed += len(source_chunk_df)
-                logger.debug(f"  Processing source rows up to {total_rows_processed}...")
-
                 normalized_rows = []
                 for _, source_row in source_chunk_df.iterrows():
                     split_values_lists = [

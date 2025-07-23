@@ -274,9 +274,6 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             total_rows_processed = 0
             for source_chunk_df in pd.read_sql(source_sql, engine, chunksize=PROCESSING_CHUNK_SIZE):
                 total_rows_processed += len(source_chunk_df)
-                logger.debug(f"  Processing source rows chunk... (up to row {total_rows_processed})")
-
-                # === FIX APPLIED HERE ===
                 # Convert columns to string before splitting to handle non-string data types.
                 for col in source_multi_cols:
                     source_chunk_df[col] = source_chunk_df[col].astype(str).str.split(separator)
