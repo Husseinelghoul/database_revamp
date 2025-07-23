@@ -94,13 +94,7 @@ def add_primary_keys(target_db_url, schema_name):
 
 def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/one_to_many_relations.csv"):
     """
-    Implement one-to-many relations based on CSV configuration.
-    It now supports composite lookup keys.
-    
-    CSV Format: table_name,column_name,replaced_with,referenced_table,referenced_column,lookup_column
-    - column_name: The column(s) in the source table. For multiple columns, separate with a hyphen ('-').
-    - lookup_column: The column(s) in the referenced table. For multiple columns, separate with a hyphen ('-').
-    - The order of columns in 'column_name' and 'lookup_column' must match.
+    Implements one-to-many relations with improved logging for clarity on unmatched rows.
     """
     MULTI_COLUMN_SEPARATOR = '-'
     try:
@@ -131,8 +125,7 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
                 )
                 continue
 
-            logger.debug(f"Processing one-to-many: {schema_name}.{table_name} using composite key "
-                         f"({source_columns} -> {lookup_columns})")
+            logger.debug(f"Processing one-to-many: {schema_name}.{table_name}...")
             
             try:
                 check_col_exists_query = text(f"""
@@ -147,16 +140,24 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
                 else:
                     logger.debug(f"Column {replaced_with} already exists in {schema_name}.{table_name}.")
 
+                # Log how many source values are NULL or empty to begin with
+                initially_null_conditions = " OR ".join([
+                    f"({col} IS NULL OR LTRIM(RTRIM(CAST({col} AS VARCHAR(MAX)))) = '')" for col in source_columns
+                ])
+                initially_null_query = text(f"""
+                    SELECT COUNT(*) FROM "{schema_name}"."{table_name}" WHERE {initially_null_conditions};
+                """)
+                initially_null_count = conn.execute(initially_null_query).scalar_one()
+                logger.debug(f"{initially_null_count} rows in {table_name} have NULL/empty source values and will not be matched.")
+                
                 join_conditions = " AND ".join([
                     f'src."{sc}" = ref."{lc}"' for sc, lc in zip(source_columns, lookup_columns)
                 ])
                 
                 update_query = text(f"""
-                    UPDATE src
-                    SET "{replaced_with}" = ref."{referenced_column}"
+                    UPDATE src SET "{replaced_with}" = ref."{referenced_column}"
                     FROM "{schema_name}"."{table_name}" AS src
-                    LEFT JOIN "{schema_name}"."{referenced_table}" AS ref
-                        ON {join_conditions}
+                    JOIN "{schema_name}"."{referenced_table}" AS ref ON {join_conditions}
                     WHERE src."{replaced_with}" IS NULL;
                 """)
                 result = conn.execute(update_query)
@@ -170,10 +171,9 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
                     FROM "{schema_name}"."{table_name}"
                     WHERE "{replaced_with}" IS NULL AND ({unmatched_check_conditions});
                 """)
-                unmatched_count = conn.execute(unmatched_query).scalar_one_or_none()
-                if unmatched_count and unmatched_count > 0:
-                    logger.debug(f"{unmatched_count} entries in {schema_name}.{table_name} could not find a match in {schema_name}.{referenced_table}. "
-                                 f"{replaced_with} remains NULL for these.")
+                unmatched_count = conn.execute(unmatched_query).scalar_one()
+                if unmatched_count > 0:
+                    logger.debug(f"-> {unmatched_count} rows in {table_name} had a value but could not find a match in {referenced_table}.")
                 
                 fk_constraint_name = generate_constraint_name(
                     prefix="FK", name_elements=[table_name, referenced_table, replaced_with]
@@ -203,14 +203,7 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
 
 def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/many_to_many_relations.csv"):
     """
-    Creates many-to-many relations using batch processing. Now supports composite
-    lookup keys where multiple source columns contain delimited values.
-    
-    CSV Format: ...source_multi_column,lookup_name_column...
-    - source_multi_column: Hyphen-separated list of columns in the source table that contain the values.
-    - lookup_name_column: Hyphen-separated list of columns in the lookup table to match against.
-    - The order of columns in 'source_multi_column' and 'lookup_name_column' must correspond.
-    - 'seperator': The character (e.g., ';') used to split values within each source column.
+    Creates many-to-many relations with improved logging for unmatched values.
     """
     MULTI_COLUMN_SEPARATOR = '-'
     try:
@@ -226,12 +219,9 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
         lookup_table, lookup_id_col = row["lookup_table"], row["lookup_id_column"]
         assoc_table, assoc_source_col, assoc_lookup_col = row["associative_table"], row["assoc_source_column"], row["assoc_lookup_column"]
         separator = row["seperator"]
+        source_multi_cols = [c.strip() for c in row["source_multi_column"].split(MULTI_COLUMN_SEPARATOR)]
+        lookup_name_cols = [c.strip() for c in row["lookup_name_column"].split(MULTI_COLUMN_SEPARATOR)]
         
-        source_multi_col_str = row["source_multi_column"]
-        lookup_name_col_str = row["lookup_name_column"]
-        source_multi_cols = [c.strip() for c in source_multi_col_str.split(MULTI_COLUMN_SEPARATOR)]
-        lookup_name_cols = [c.strip() for c in lookup_name_col_str.split(MULTI_COLUMN_SEPARATOR)]
-
         if len(source_multi_cols) != len(lookup_name_cols):
             logger.error(f"Mismatched number of lookup columns for associative table '{assoc_table}'. "
                          f"Source has {len(source_multi_cols)} ({source_multi_cols}) but "
@@ -244,7 +234,6 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
         logger.debug(f"Processing relation for {full_assoc_name} with composite keys...")
 
         try:
-            # === Step 1: Pre-load lookup table into a dictionary with composite keys ===
             logger.debug(f"Caching lookup table: {full_lookup_name}...")
             quoted_lookup_cols = [f'"{c}"' for c in lookup_name_cols]
             lookup_sql = f'SELECT "{lookup_id_col}", {", ".join(quoted_lookup_cols)} FROM {full_lookup_name}'
@@ -257,29 +246,25 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             lookup_dict = pd.Series(lookup_df[lookup_id_col].values, index=multi_index).to_dict()
             logger.debug(f"Cached {len(lookup_dict)} lookup values using {len(lookup_name_cols)}-part composite key.")
 
-            # === Step 2: Setup a fresh associative table ===
             with engine.begin() as conn:
                 logger.debug(f"Recreating empty target table: {full_assoc_name}")
                 conn.execute(text(f'DROP TABLE IF EXISTS {full_assoc_name};'))
                 create_sql = f'CREATE TABLE {full_assoc_name} ("{assoc_source_col}" INT, "{assoc_lookup_col}" INT);'
                 conn.execute(text(create_sql))
 
-            # === Step 3: Stream source table and process in chunks ===
             quoted_source_multi_cols = [f'"{c}"' for c in source_multi_cols]
             cols_to_select = [f'"{source_id_col}"'] + quoted_source_multi_cols
             where_clause = " OR ".join([f'{c} IS NOT NULL' for c in quoted_source_multi_cols])
             source_sql = f'SELECT {", ".join(cols_to_select)} FROM {full_source_name} WHERE {where_clause}'
             
             logger.debug(f"Streaming source table {full_source_name} in chunks of {PROCESSING_CHUNK_SIZE}...")
-            total_rows_processed = 0
+            total_unmatched_count = 0
+            
             for source_chunk_df in pd.read_sql(source_sql, engine, chunksize=PROCESSING_CHUNK_SIZE):
-                total_rows_processed += len(source_chunk_df)
-                # Convert columns to string before splitting to handle non-string data types.
                 for col in source_multi_cols:
                     source_chunk_df[col] = source_chunk_df[col].astype(str).str.split(separator)
                 
                 source_chunk_df.dropna(subset=source_multi_cols, inplace=True)
-
                 exploded_df = source_chunk_df.explode(source_multi_cols)
                 exploded_df.dropna(subset=source_multi_cols, inplace=True)
                 
@@ -291,6 +276,9 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
 
                 multi_index = pd.MultiIndex.from_frame(exploded_df[source_multi_cols])
                 exploded_df[assoc_lookup_col] = multi_index.map(lookup_dict)
+
+                unmatched_in_chunk = exploded_df[assoc_lookup_col].isna().sum()
+                total_unmatched_count += unmatched_in_chunk
                 
                 final_chunk_df = exploded_df.dropna(subset=[assoc_lookup_col])
                 final_chunk_df = final_chunk_df[[source_id_col, assoc_lookup_col]]
@@ -299,7 +287,9 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                 if not final_chunk_df.empty:
                     final_chunk_df.to_sql(name=assoc_table, con=engine, schema=schema_name, if_exists='append', index=False)
             
-            # === Step 4: Finalize the table (remove duplicates and add constraints) ===
+            if total_unmatched_count > 0:
+                logger.debug(f"A total of {total_unmatched_count} values from {source_table} could not find a match in {lookup_table} and were not inserted.")
+
             logger.debug(f"Finalizing table {full_assoc_name}...")
             with engine.begin() as conn:
                 temp_table_name = f"#{assoc_table}_temp_distinct"
