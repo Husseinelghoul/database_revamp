@@ -1,7 +1,7 @@
 import time
 
 from config.db_config import build_connection_url, load_config
-from db.custom_operations import implement_predecessor_successor, link_project_management_to_sources
+from db.custom_operations import create_lookup_project_to_project_phase_category, implement_predecessor_successor, link_project_management_to_sources
 from db.create_lookup_media_tables import create_lookup_project_to_media, create_media_lookup
 from db.data_integrity import (add_primary_keys,
                                implement_many_to_many_relations,
@@ -11,7 +11,7 @@ from db.data_quality import apply_data_quality_rules, change_data_types
 from db.database_optimization import create_project_period_indexes
 from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
-from db.schema_changes import split_columns, split_tables
+from db.schema_changes import split_columns
 from db.schema_writer import read_schema, replicate_schema_with_sql
 from db.sync_master_tables import (merge_master_tables, populate_master_tables,
                                    streamlined_sync_master_tables)
@@ -101,10 +101,8 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         phase_start = time.time()
         phase_end = time.time()
         logger.info("Phase 5: Splitting Columns and tables")
-        logger.info("Splitting Columns - 5a")
+        logger.info("Splitting Columns - 5")
         split_columns(target_db_url, target_schema)
-        logger.info("Splitting tables - 5b")
-        split_tables(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 5 completed in {phase_end - phase_start:.2f} seconds")
     # Phase 6: Primary keys
@@ -141,7 +139,9 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         create_lookup_project_to_media(target_db_url, target_schema)
         create_media_lookup(target_db_url, target_schema)
         logger.info(f"Link project management to sources - 8c")
-        link_project_management_to_sources(target_db_url, target_schema)
+        # link_project_management_to_sources(target_db_url, target_schema)
+        logger.info(f"Create and populate lookup_project_to_project_phase_category - 8d")
+        create_lookup_project_to_project_phase_category(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 8 completed in {phase_end - phase_start:.2f} seconds")
 

@@ -1,6 +1,7 @@
 import json
 import pandas as pd
-from sqlalchemy import create_engine, text, exc
+from sqlalchemy import create_engine, text, inspect
+from sqlalchemy.exc import ProgrammingError
 
 from utils.logger import setup_logger
 
@@ -249,3 +250,76 @@ def link_project_management_to_sources(target_db_url, schema_name):
     except Exception as e:
         logger.error(f"A critical error occurred during the project management linking process: {e}", exc_info=True)
         raise
+
+def create_lookup_project_to_project_phase_category(target_db_url: str, schema_name: str):
+    """
+    Creates 'lookup_project_to_project_phase_category' by splitting a delimited string.
+
+    This version uses a simplified SQL script and relies on Python/SQLAlchemy for
+    transaction and error management, ensuring any database errors are reported correctly.
+
+    Args:
+        target_db_url (str): The SQLAlchemy database connection URL for the MSSQL server.
+        schema_name (str): The name of the database schema (e.g., 'dbo').
+    """
+    engine = create_engine(target_db_url)
+
+    source_table = f'"{schema_name}"."project_status"'
+    target_table_name = "lookup_project_to_project_phase_category"
+    target_table_full = f'"{schema_name}"."{target_table_name}"'
+    delimiter = '$@'
+
+    # The SQL script is now simplified, without its own transaction or error handling.
+    sql_script = f"""
+    -- Step 1: Drop the target table if it exists for a clean build.
+    IF OBJECT_ID(N'{target_table_full}', N'U') IS NOT NULL
+        DROP TABLE {target_table_full};
+
+    -- Step 2: Create the table structure.
+    CREATE TABLE {target_table_full} (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        period DATE NULL,
+        project_name NVARCHAR(255) NULL,
+        project_phase_category NVARCHAR(MAX) NULL
+    );
+
+    -- Step 3: Insert the data using a compatible recursive CTE.
+    WITH SplitCTE AS (
+        SELECT
+            ps.period, ps.project_name,
+            CAST(LEFT(ps.project_phase_category, CHARINDEX(N'{delimiter}', ps.project_phase_category + N'{delimiter}') - 1) AS NVARCHAR(MAX)) AS SplitValue,
+            STUFF(ps.project_phase_category, 1, CHARINDEX(N'{delimiter}', ps.project_phase_category + N'{delimiter}'), '') AS Remainder
+        FROM {source_table} AS ps
+        WHERE ps.project_phase_category IS NOT NULL AND ps.project_phase_category <> N''
+        UNION ALL
+        SELECT
+            s.period, s.project_name,
+            CAST(LEFT(s.Remainder, CHARINDEX(N'{delimiter}', s.Remainder + N'{delimiter}') - 1) AS NVARCHAR(MAX)),
+            STUFF(s.Remainder, 1, CHARINDEX(N'{delimiter}', s.Remainder + N'{delimiter}'), '')
+        FROM SplitCTE s
+        WHERE s.Remainder > ''
+    )
+    INSERT INTO {target_table_full} (period, project_name, project_phase_category)
+    SELECT DISTINCT
+        s.period,
+        TRIM(s.project_name),
+        TRIM(s.SplitValue)
+    FROM SplitCTE s
+    OPTION (MAXRECURSION 0);
+    """
+
+    try:
+        # Let SQLAlchemy manage the transaction with a 'with' block.
+        # It automatically handles BEGIN, COMMIT, and ROLLBACK.
+        with engine.connect() as connection:
+            with connection.begin() as transaction:
+                connection.execute(text(sql_script))
+    except ProgrammingError as e:
+        # If any SQL error occurs, it will be caught here.
+        # We re-raise it to provide the full, detailed error message.
+        raise Exception("The SQL script failed to execute. See the original database error above.") from e
+
+    # The verification step remains as a final sanity check.
+    inspector = inspect(engine)
+    if not inspector.has_table(target_table_name, schema=schema_name):
+        raise Exception(f"Verification failed: Table '{schema_name}.{target_table_name}' was not created.")
