@@ -139,7 +139,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         create_lookup_project_to_media(target_db_url, target_schema)
         create_media_lookup(target_db_url, target_schema)
         logger.info(f"Link project management to sources - 8c")
-        # link_project_management_to_sources(target_db_url, target_schema)
+        link_project_management_to_sources(target_db_url, target_schema)
         logger.info(f"Create and populate lookup_project_to_project_phase_category - 8d")
         create_lookup_project_to_project_phase_category(target_db_url, target_schema)
         phase_end = time.time()

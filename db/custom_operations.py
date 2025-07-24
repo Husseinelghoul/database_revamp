@@ -1,7 +1,9 @@
 import json
+
 import pandas as pd
-from sqlalchemy import create_engine, text, inspect
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.sql.sqltypes import DATE, INTEGER, NVARCHAR
 
 from utils.logger import setup_logger
 
@@ -251,75 +253,119 @@ def link_project_management_to_sources(target_db_url, schema_name):
         logger.error(f"A critical error occurred during the project management linking process: {e}", exc_info=True)
         raise
 
-def create_lookup_project_to_project_phase_category(target_db_url: str, schema_name: str):
+def create_lookup_project_to_project_phase_category(target_db_url: str,schema_name: str):
     """
-    Creates 'lookup_project_to_project_phase_category' by splitting a delimited string.
+    Processes project data to create a lookup table for project phase categories.
 
-    This version uses a simplified SQL script and relies on Python/SQLAlchemy for
-    transaction and error management, ensuring any database errors are reported correctly.
+    This function connects to a database, drops the existing lookup table, and then
+    reads the 'project_status' table. It processes the data project by project
+    to manage memory usage. For each project, it extracts the 'project_phase_category'
+    values, which are delimited by '$@'. It splits these values, removes duplicates,
+    and stores the unique combinations of period, project name, and category in the
+    new 'lookup_project_to_project_phase_category' table.
 
     Args:
-        target_db_url (str): The SQLAlchemy database connection URL for the MSSQL server.
-        schema_name (str): The name of the database schema (e.g., 'dbo').
+        schema_name (str): The name of the database schema where the source
+                           and target tables reside.
+        target_db_url (str): The database connection URL in a SQLAlchemy-compatible
+                             format (e.g., 'mssql+pyodbc://user:pass@dsn').
     """
-    engine = create_engine(target_db_url)
+    # --- Input Validation ---
+    # This check helps prevent errors if the function arguments are swapped.
+    if "://" not in target_db_url:
+        error_msg = (
+            f"Invalid `target_db_url` provided: '{target_db_url}'. "
+            "This does not look like a valid SQLAlchemy connection string. "
+            "It should be in a format like 'dialect+driver://user:pass@host/database'. "
+            "Please check if the arguments for schema_name and target_db_url were swapped during the function call."
+        )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
-    source_table = f'"{schema_name}"."project_status"'
-    target_table_name = "lookup_project_to_project_phase_category"
-    target_table_full = f'"{schema_name}"."{target_table_name}"'
-    delimiter = '$@'
-
-    # The SQL script is now simplified, without its own transaction or error handling.
-    sql_script = f"""
-    -- Step 1: Drop the target table if it exists for a clean build.
-    IF OBJECT_ID(N'{target_table_full}', N'U') IS NOT NULL
-        DROP TABLE {target_table_full};
-
-    -- Step 2: Create the table structure.
-    CREATE TABLE {target_table_full} (
-        id INT IDENTITY(1,1) PRIMARY KEY,
-        period DATE NULL,
-        project_name NVARCHAR(255) NULL,
-        project_phase_category NVARCHAR(MAX) NULL
-    );
-
-    -- Step 3: Insert the data using a compatible recursive CTE.
-    WITH SplitCTE AS (
-        SELECT
-            ps.period, ps.project_name,
-            CAST(LEFT(ps.project_phase_category, CHARINDEX(N'{delimiter}', ps.project_phase_category + N'{delimiter}') - 1) AS NVARCHAR(MAX)) AS SplitValue,
-            STUFF(ps.project_phase_category, 1, CHARINDEX(N'{delimiter}', ps.project_phase_category + N'{delimiter}'), '') AS Remainder
-        FROM {source_table} AS ps
-        WHERE ps.project_phase_category IS NOT NULL AND ps.project_phase_category <> N''
-        UNION ALL
-        SELECT
-            s.period, s.project_name,
-            CAST(LEFT(s.Remainder, CHARINDEX(N'{delimiter}', s.Remainder + N'{delimiter}') - 1) AS NVARCHAR(MAX)),
-            STUFF(s.Remainder, 1, CHARINDEX(N'{delimiter}', s.Remainder + N'{delimiter}'), '')
-        FROM SplitCTE s
-        WHERE s.Remainder > ''
-    )
-    INSERT INTO {target_table_full} (period, project_name, project_phase_category)
-    SELECT DISTINCT
-        s.period,
-        TRIM(s.project_name),
-        TRIM(s.SplitValue)
-    FROM SplitCTE s
-    OPTION (MAXRECURSION 0);
-    """
+    new_table_name = 'lookup_project_to_project_phase_category'
+    source_table_name = 'project_status'
+    table_created_flag = False # Flag to check if the table has been created
 
     try:
-        # Let SQLAlchemy manage the transaction with a 'with' block.
-        # It automatically handles BEGIN, COMMIT, and ROLLBACK.
-        with engine.connect() as connection:
-            with connection.begin() as transaction:
-                connection.execute(text(sql_script))
-    except ProgrammingError as e:
-        # If any SQL error occurs, it will be caught here.
-        # We re-raise it to provide the full, detailed error message.
-        raise Exception("The SQL script failed to execute. See the original database error above.") from e
+        # --- Database Connection ---
+        # Using fast_executemany can significantly speed up inserts for some drivers like pyodbc.
+        engine = create_engine(target_db_url, fast_executemany=True)
+        logger.debug("Successfully connected to the database.")
 
-    # The verification step remains as a final sanity check.
-    inspector = inspect(engine)
-    if not inspector.has_table(target_table_name, schema=schema_name):
-        raise Exception(f"Verification failed: Table '{schema_name}.{target_table_name}' was not created.")
+        with engine.connect() as connection:
+            # --- Drop the target table if it already exists for a clean run ---
+            logger.debug(f"Attempting to drop table '{schema_name}.{new_table_name}' if it exists.")
+            # Using a transaction to ensure the drop command is committed.
+            with connection.begin():
+                 # Note: "IF EXISTS" syntax is common but might vary slightly between SQL dialects.
+                connection.execute(text(f"DROP TABLE IF EXISTS {schema_name}.{new_table_name}"))
+            logger.debug("Table dropped or did not exist.")
+
+
+            # --- Step 1: Get all unique project names to process iteratively ---
+            logger.debug(f"Fetching unique project names from '{schema_name}.{source_table_name}'.")
+            project_query = text(f"SELECT DISTINCT project_name FROM {schema_name}.{source_table_name} WHERE project_name IS NOT NULL")
+            unique_projects_df = pd.read_sql(project_query, connection)
+            project_names = unique_projects_df['project_name'].tolist()
+            logger.debug(f"Found {len(project_names)} unique projects to process.")
+
+            # --- Step 2: Process each project individually ---
+            for project_name in project_names:
+                logger.debug(f"Processing project: '{project_name}'")
+
+                # --- Fetch data for the current project, using the correct source column ---
+                query = text(f"""
+                    SELECT period, project_name, project_phase_category
+                    FROM {schema_name}.{source_table_name}
+                    WHERE project_name = :project_name AND project_phase_category IS NOT NULL
+                """)
+                project_df = pd.read_sql(query, connection, params={'project_name': project_name})
+
+                if project_df.empty:
+                    logger.warning(f"No data found for project '{project_name}'. Skipping.")
+                    continue
+
+                # --- Data Transformation ---
+                # Split the category string by the delimiter '$@', escaping the special '$' character.
+                project_df['project_phase_category'] = project_df['project_phase_category'].str.split(r'\$@')
+
+                # Explode the DataFrame to have one category per row
+                exploded_df = project_df.explode('project_phase_category')
+
+                # Remove leading/trailing whitespace from the new category column
+                exploded_df['project_phase_category'] = exploded_df['project_phase_category'].str.strip()
+
+                # Drop duplicate rows to get unique category assignments for the project
+                unique_categories_df = exploded_df.drop_duplicates().reset_index(drop=True)
+
+                # --- Load data into the new table ---
+                if not unique_categories_df.empty:
+                    # Since we drop the table at the start, we can always append.
+                    # The first write operation will create the new table.
+                    unique_categories_df.to_sql(
+                        name=new_table_name,
+                        con=engine,
+                        schema=schema_name,
+                        if_exists='append',
+                        index=False # We will add our own identity column
+                    )
+
+                    if not table_created_flag:
+                        # After creating the table with the first batch of data,
+                        # we add the 'id' identity column.
+                        try:
+                            with engine.begin() as conn:
+                                # This syntax is for SQL Server. It might need adjustment for other DBs.
+                                conn.execute(text(f"ALTER TABLE {schema_name}.{new_table_name} ADD id INT IDENTITY(1,1) PRIMARY KEY;"))
+                            logger.debug(f"Created and configured identity column on '{schema_name}.{new_table_name}'.")
+                        except Exception as e:
+                            logger.error(f"Could not configure identity column. You may need to do this manually. Error: {e}")
+                        table_created_flag = True # Ensure this runs only once
+
+                    logger.debug(f"Successfully inserted {len(unique_categories_df)} rows for project '{project_name}'.")
+
+    except Exception as e:
+        logger.error(f"An error occurred during the process: {e}")
+        # Optionally re-raise the exception if you want the script to stop
+        raise e
+
