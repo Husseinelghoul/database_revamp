@@ -177,7 +177,7 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
                 unmatched_count = conn.execute(unmatched_query).scalar_one()
                 if unmatched_count > 0:
                     # CHANGED: Log count as a warning for visibility and add samples of unmatched values.
-                    logger.warning(f"-> {unmatched_count} rows in {table_name} had a value but could not find a match in {referenced_table}.")
+                    logger.debug(f"WARNING-> {unmatched_count} rows in {table_name} had a value but could not find a match in {referenced_table}.")
                     
                     source_cols_for_select = ", ".join([f'"{c}"' for c in source_columns])
                     # Using TOP 10 for T-SQL compatibility. Use LIMIT 10 for PostgreSQL/MySQL.
@@ -191,9 +191,9 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
                     try:
                         sample_unmatched_values = conn.execute(sample_query).fetchall()
                         if sample_unmatched_values:
-                            logger.info("Sample of distinct unmatched source values:")
+                            logger.debug("Sample of distinct unmatched source values:")
                             for sample in sample_unmatched_values:
-                                logger.info(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
+                                logger.debug(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
                     except Exception as sample_e:
                         logger.error(f"Could not retrieve a sample of unmatched values: {sample_e}")
                 
@@ -329,12 +329,12 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             
             # CHANGED: Replaced old log message with a more informative one that includes samples.
             if total_unmatched_count > 0:
-                logger.warning(f"A total of {total_unmatched_count} values from {source_table} could not find a match in {lookup_table} and were not inserted.")
+                logger.debug(f"WARNING A total of {total_unmatched_count} values from {source_table} could not find a match in {lookup_table} and were not inserted.")
                 if unmatched_samples:
-                    logger.info(f"Sample of distinct unmatched source values (up to {MAX_SAMPLES_TO_LOG}):")
+                    logger.debug(f"Sample of distinct unmatched source values (up to {MAX_SAMPLES_TO_LOG}):")
                     samples_to_log = list(unmatched_samples)[:MAX_SAMPLES_TO_LOG]
                     for sample in samples_to_log:
-                         logger.info(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
+                         logger.debug(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
 
             logger.debug(f"Finalizing table {full_assoc_name}...")
             with engine.begin() as conn:
