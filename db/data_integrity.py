@@ -92,17 +92,20 @@ def add_primary_keys(target_db_url, schema_name):
             except SQLAlchemyError:
                 logger.exception(f"FAILED to set primary key for {full_table_name}. Skipping this table.")
 
+
 def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/one_to_many_relations.csv"):
     """
     Implements one-to-many relations with improved logging for clarity on unmatched rows.
     """
     MULTI_COLUMN_SEPARATOR = '-'
     try:
-        relations_df = load_schema_changes(csv_path)
+        # Assuming load_schema_changes is a valid function in your code
+        relations_df = pd.read_csv(csv_path) 
     except Exception as e:
         logger.error(f"Could not load one-to-many relations from {csv_path}. Aborting. Error: {e}")
         return
 
+    # Using a T-SQL dialect-aware engine, as hinted by VARCHAR(MAX), #temp_tables, etc.
     engine = create_engine(target_db_url)
     
     with engine.begin() as conn: 
@@ -173,7 +176,26 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
                 """)
                 unmatched_count = conn.execute(unmatched_query).scalar_one()
                 if unmatched_count > 0:
-                    logger.debug(f"-> {unmatched_count} rows in {table_name} had a value but could not find a match in {referenced_table}.")
+                    # CHANGED: Log count as a warning for visibility and add samples of unmatched values.
+                    logger.warning(f"-> {unmatched_count} rows in {table_name} had a value but could not find a match in {referenced_table}.")
+                    
+                    source_cols_for_select = ", ".join([f'"{c}"' for c in source_columns])
+                    # Using TOP 10 for T-SQL compatibility. Use LIMIT 10 for PostgreSQL/MySQL.
+                    sample_query = text(f"""
+                        SELECT TOP 10 {source_cols_for_select}
+                        FROM "{schema_name}"."{table_name}"
+                        WHERE "{replaced_with}" IS NULL AND ({unmatched_check_conditions})
+                        GROUP BY {source_cols_for_select}
+                        ORDER BY {source_cols_for_select};
+                    """)
+                    try:
+                        sample_unmatched_values = conn.execute(sample_query).fetchall()
+                        if sample_unmatched_values:
+                            logger.info("Sample of distinct unmatched source values:")
+                            for sample in sample_unmatched_values:
+                                logger.info(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
+                    except Exception as sample_e:
+                        logger.error(f"Could not retrieve a sample of unmatched values: {sample_e}")
                 
                 fk_constraint_name = generate_constraint_name(
                     prefix="FK", name_elements=[table_name, referenced_table, replaced_with]
@@ -254,11 +276,14 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
 
             quoted_source_multi_cols = [f'"{c}"' for c in source_multi_cols]
             cols_to_select = [f'"{source_id_col}"'] + quoted_source_multi_cols
-            where_clause = " OR ".join([f'{c} IS NOT NULL' for c in quoted_source_multi_cols])
+            where_clause = " AND ".join([f'{c} IS NOT NULL' for c in quoted_source_multi_cols])
             source_sql = f'SELECT {", ".join(cols_to_select)} FROM {full_source_name} WHERE {where_clause}'
             
             logger.debug(f"Streaming source table {full_source_name} in chunks of {PROCESSING_CHUNK_SIZE}...")
+            # CHANGED: Initialize variables to track unmatched counts and collect samples.
             total_unmatched_count = 0
+            unmatched_samples = set()
+            MAX_SAMPLES_TO_LOG = 10
             
             for source_chunk_df in pd.read_sql(source_sql, engine, chunksize=PROCESSING_CHUNK_SIZE):
                 for col in source_multi_cols:
@@ -273,13 +298,28 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
 
                 for col in source_multi_cols:
                     exploded_df[col] = exploded_df[col].str.strip()
+                
+                # NEW: Filter out rows where any of the key columns became an empty string after splitting.
+                empty_string_mask = pd.Series(False, index=exploded_df.index)
+                for col in source_multi_cols:
+                    empty_string_mask |= (exploded_df[col] == '')
+                exploded_df = exploded_df[~empty_string_mask]
+
+                if exploded_df.empty:
+                    continue
 
                 multi_index = pd.MultiIndex.from_frame(exploded_df[source_multi_cols])
                 exploded_df[assoc_lookup_col] = multi_index.map(lookup_dict)
 
-                unmatched_in_chunk = exploded_df[assoc_lookup_col].isna().sum()
-                total_unmatched_count += unmatched_in_chunk
+                unmatched_in_chunk_df = exploded_df[exploded_df[assoc_lookup_col].isna()]
+                unmatched_in_chunk_count = len(unmatched_in_chunk_df)
+                total_unmatched_count += unmatched_in_chunk_count
                 
+                # NEW: Collect a small, unique sample of unmatched values for logging.
+                if unmatched_in_chunk_count > 0 and len(unmatched_samples) < MAX_SAMPLES_TO_LOG:
+                    unique_unmatched_tuples = set(unmatched_in_chunk_df[source_multi_cols].itertuples(index=False, name=None))
+                    unmatched_samples.update(unique_unmatched_tuples)
+
                 final_chunk_df = exploded_df.dropna(subset=[assoc_lookup_col])
                 final_chunk_df = final_chunk_df[[source_id_col, assoc_lookup_col]]
                 final_chunk_df.columns = [assoc_source_col, assoc_lookup_col]
@@ -287,11 +327,18 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                 if not final_chunk_df.empty:
                     final_chunk_df.to_sql(name=assoc_table, con=engine, schema=schema_name, if_exists='append', index=False)
             
+            # CHANGED: Replaced old log message with a more informative one that includes samples.
             if total_unmatched_count > 0:
-                logger.debug(f"A total of {total_unmatched_count} values from {source_table} could not find a match in {lookup_table} and were not inserted.")
+                logger.warning(f"A total of {total_unmatched_count} values from {source_table} could not find a match in {lookup_table} and were not inserted.")
+                if unmatched_samples:
+                    logger.info(f"Sample of distinct unmatched source values (up to {MAX_SAMPLES_TO_LOG}):")
+                    samples_to_log = list(unmatched_samples)[:MAX_SAMPLES_TO_LOG]
+                    for sample in samples_to_log:
+                         logger.info(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
 
             logger.debug(f"Finalizing table {full_assoc_name}...")
             with engine.begin() as conn:
+                # Using T-SQL syntax for temp tables
                 temp_table_name = f"#{assoc_table}_temp_distinct"
                 conn.execute(text(f"SELECT DISTINCT * INTO {temp_table_name} FROM {full_assoc_name};"))
                 conn.execute(text(f"TRUNCATE TABLE {full_assoc_name};"))
