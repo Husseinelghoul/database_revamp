@@ -1,8 +1,14 @@
 import json
 import os
+import warnings
+
 import pandas as pd
 from sqlalchemy import create_engine, text
+
 from utils.logger import setup_logger
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", category=FutureWarning)
 
 logger = setup_logger()
 
