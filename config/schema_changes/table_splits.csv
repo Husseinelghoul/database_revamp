@@ -1,3 +1,2 @@
 source_table_name,columns_to_copy,columns_to_split,separator,target_table_name
 project_status,period;project_name,project_phase_category,$@,lookup_project_to_project_phase_category
-project_status,period;project_name,project_phase_category;phase,$@,lookup_project_to_phase
