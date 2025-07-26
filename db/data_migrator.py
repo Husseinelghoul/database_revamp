@@ -3,7 +3,7 @@ import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect, text, bindparam
 from sqlalchemy.exc import SAWarning
 from sqlalchemy.pool import QueuePool
 
@@ -25,7 +25,7 @@ def migrate_table_optimized(
     chunksize=MIGRATION_CHUNK_SIZE,
 ):
     """
-    Final version with the UserWarning correctly suppressed.
+    Final version with the UserWarning correctly suppressed and the IN clause fixed.
     """
     try:
         logger.debug(f"Starting migration for table: {table_name}")
@@ -44,8 +44,14 @@ def migrate_table_optimized(
         has_project_column = any(col["name"].lower() == "project_name" for col in source_columns)
 
         if has_project_column and project_names and project_names != ['*']:
-            query = text(f'SELECT * FROM "{source_schema}"."{table_name}" WHERE project_name IN :project_names')
-            params = {"project_names": tuple(project_names)}
+            # 1. Define the query with a named, expandable parameter.
+            query = text(f'SELECT * FROM "{source_schema}"."{table_name}" WHERE project_name IN :names_list')
+            
+            # 2. Mark the parameter for expansion. This turns one parameter into IN (?, ?, ...).
+            query = query.bindparams(bindparam('names_list', expanding=True))
+
+            # 3. The parameters dict maps the name to the Python list of values.
+            params = {"names_list": project_names}
         else:
             query = text(f'SELECT * FROM "{source_schema}"."{table_name}"')
             params = {}
@@ -73,12 +79,11 @@ def migrate_table_optimized(
                 if not mappable_columns:
                     return
                 
-                # === THE FIX: Correctly target UserWarning ===
                 with warnings.catch_warnings():
                     warnings.filterwarnings(
                         "ignore",
                         r"The provided table name .* is not found exactly as such",
-                        UserWarning, # This was changed from SAWarning
+                        UserWarning,
                     )
                     chunk[mappable_columns].to_sql(
                         table_name, conn, schema=target_schema, if_exists="append", index=False
@@ -160,7 +165,6 @@ def migrate_data(
                 future.result()
             except MigrationError as e:
                 logger.error(f"Migration failed: {str(e)}")
-                # Properly shut down other tasks on failure
                 for f in futures:
                     if not f.done():
                         f.cancel()
