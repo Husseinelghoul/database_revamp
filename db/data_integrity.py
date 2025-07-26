@@ -1,10 +1,11 @@
+import json
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from config.constants import PROCESSING_CHUNK_SIZE
 from utils.logger import setup_logger
-from utils.utils import generate_constraint_name, load_schema_changes
+from utils.utils import generate_constraint_name
 
 logger = setup_logger()
 
@@ -223,9 +224,28 @@ def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_pa
                 logger.error(f"Failed for {schema_name}.{table_name} using key {source_lookup_cols_str}: {e}")
                 raise 
 
+def _parse_multi_value(value, separator: str):
+    """
+    Parses a string that can either be a simple separated list or a JSON array string.
+    """
+    if pd.isna(value):
+        return None
+        
+    s_value = str(value).strip()
+    
+    if s_value.startswith('[') and s_value.endswith(']'):
+        try:
+            return json.loads(s_value)
+        except json.JSONDecodeError:
+            return []
+            
+    return [item.strip() for item in s_value.split(separator)]
+
+
 def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/many_to_many_relations.csv"):
     """
     Creates many-to-many relations with improved logging for unmatched values.
+    Supports both simple separator and JSON array string formats.
     """
     MULTI_COLUMN_SEPARATOR = '-'
     try:
@@ -280,14 +300,13 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             source_sql = f'SELECT {", ".join(cols_to_select)} FROM {full_source_name} WHERE {where_clause}'
             
             logger.debug(f"Streaming source table {full_source_name} in chunks of {PROCESSING_CHUNK_SIZE}...")
-            # CHANGED: Initialize variables to track unmatched counts and collect samples.
             total_unmatched_count = 0
             unmatched_samples = set()
             MAX_SAMPLES_TO_LOG = 10
             
             for source_chunk_df in pd.read_sql(source_sql, engine, chunksize=PROCESSING_CHUNK_SIZE):
                 for col in source_multi_cols:
-                    source_chunk_df[col] = source_chunk_df[col].astype(str).str.split(separator)
+                    source_chunk_df[col] = source_chunk_df[col].apply(_parse_multi_value, separator=separator)
                 
                 source_chunk_df.dropna(subset=source_multi_cols, inplace=True)
                 exploded_df = source_chunk_df.explode(source_multi_cols)
@@ -297,9 +316,8 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                     continue
 
                 for col in source_multi_cols:
-                    exploded_df[col] = exploded_df[col].str.strip()
+                    exploded_df[col] = exploded_df[col].astype(str).str.strip()
                 
-                # NEW: Filter out rows where any of the key columns became an empty string after splitting.
                 empty_string_mask = pd.Series(False, index=exploded_df.index)
                 for col in source_multi_cols:
                     empty_string_mask |= (exploded_df[col] == '')
@@ -315,7 +333,6 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                 unmatched_in_chunk_count = len(unmatched_in_chunk_df)
                 total_unmatched_count += unmatched_in_chunk_count
                 
-                # NEW: Collect a small, unique sample of unmatched values for logging.
                 if unmatched_in_chunk_count > 0 and len(unmatched_samples) < MAX_SAMPLES_TO_LOG:
                     unique_unmatched_tuples = set(unmatched_in_chunk_df[source_multi_cols].itertuples(index=False, name=None))
                     unmatched_samples.update(unique_unmatched_tuples)
@@ -327,7 +344,6 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                 if not final_chunk_df.empty:
                     final_chunk_df.to_sql(name=assoc_table, con=engine, schema=schema_name, if_exists='append', index=False)
             
-            # CHANGED: Replaced old log message with a more informative one that includes samples.
             if total_unmatched_count > 0:
                 logger.debug(f"WARNING A total of {total_unmatched_count} values from {source_table} could not find a match in {lookup_table} and were not inserted.")
                 if unmatched_samples:
@@ -338,7 +354,6 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
 
             logger.debug(f"Finalizing table {full_assoc_name}...")
             with engine.begin() as conn:
-                # Using T-SQL syntax for temp tables
                 temp_table_name = f"#{assoc_table}_temp_distinct"
                 conn.execute(text(f"SELECT DISTINCT * INTO {temp_table_name} FROM {full_assoc_name};"))
                 conn.execute(text(f"TRUNCATE TABLE {full_assoc_name};"))
