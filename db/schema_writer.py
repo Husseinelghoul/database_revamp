@@ -63,7 +63,7 @@ def replicate_schema_with_sql(source_db_url: str, target_db_url: str, source_sch
 
                 table.schema = target_schema
                 create_sql = str(CreateTable(table).compile(target_engine)).strip()
-                logger.debug(f"Executing DDL for table: {target_schema}.{table.name}\n{create_sql}")
+                # logger.debug(f"Executing DDL for table: {target_schema}.{table.name}\n{create_sql}")
                 
                 connection.execute(text(create_sql))
                 connection.commit()
