@@ -230,22 +230,19 @@ def _parse_multi_value(value, separator: str):
     """
     if pd.isna(value):
         return None
-        
     s_value = str(value).strip()
-    
     if s_value.startswith('[') and s_value.endswith(']'):
         try:
             return json.loads(s_value)
         except json.JSONDecodeError:
             return []
-            
-    return [item.strip() for item in s_value.split(separator)]
-
+    # Return a list of non-empty strings after splitting and stripping
+    return [item.strip() for item in s_value.split(separator) if item.strip()]
 
 def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/many_to_many_relations.csv"):
     """
-    Creates many-to-many relations with improved logging for unmatched values.
-    Supports both simple separator and JSON array string formats.
+    Creates many-to-many relations, correctly splitting only the last source column
+    in a composite key when required.
     """
     MULTI_COLUMN_SEPARATOR = '-'
     try:
@@ -265,17 +262,17 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
         lookup_name_cols = [c.strip() for c in row["lookup_name_column"].split(MULTI_COLUMN_SEPARATOR)]
         
         if len(source_multi_cols) != len(lookup_name_cols):
-            logger.error(f"Mismatched number of lookup columns for associative table '{assoc_table}'. "
-                         f"Source has {len(source_multi_cols)} ({source_multi_cols}) but "
-                         f"Lookup has {len(lookup_name_cols)} ({lookup_name_cols}). Skipping.")
+            logger.error(f"Mismatched number of lookup columns for associative table '{assoc_table}'. Skipping.")
             continue
 
         full_source_name = f'"{schema_name}"."{source_table}"'
         full_lookup_name = f'"{schema_name}"."{lookup_table}"'
         full_assoc_name = f'"{schema_name}"."{assoc_table}"'
-        logger.debug(f"Processing relation for {full_assoc_name} with composite keys...")
-
+        
         try:
+            logger.debug(f"Processing relation for {full_assoc_name} with composite keys...")
+
+            # --- Caching lookup table ---
             logger.debug(f"Caching lookup table: {full_lookup_name}...")
             quoted_lookup_cols = [f'"{c}"' for c in lookup_name_cols]
             lookup_sql = f'SELECT "{lookup_id_col}", {", ".join(quoted_lookup_cols)} FROM {full_lookup_name}'
@@ -288,12 +285,14 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             lookup_dict = pd.Series(lookup_df[lookup_id_col].values, index=multi_index).to_dict()
             logger.debug(f"Cached {len(lookup_dict)} lookup values using {len(lookup_name_cols)}-part composite key.")
 
+            # --- Recreate target table ---
             with engine.begin() as conn:
                 logger.debug(f"Recreating empty target table: {full_assoc_name}")
                 conn.execute(text(f'DROP TABLE IF EXISTS {full_assoc_name};'))
                 create_sql = f'CREATE TABLE {full_assoc_name} ("{assoc_source_col}" INT, "{assoc_lookup_col}" INT);'
                 conn.execute(text(create_sql))
 
+            # --- Streaming and Processing Source Table ---
             quoted_source_multi_cols = [f'"{c}"' for c in source_multi_cols]
             cols_to_select = [f'"{source_id_col}"'] + quoted_source_multi_cols
             where_clause = " AND ".join([f'{c} IS NOT NULL' for c in quoted_source_multi_cols])
@@ -303,21 +302,33 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             total_unmatched_count = 0
             unmatched_samples = set()
             MAX_SAMPLES_TO_LOG = 10
+
+            # Identify the column to split vs. the columns to just carry along.
+            column_to_explode = source_multi_cols[-1]
+            linking_columns = source_multi_cols[:-1]
+            logger.debug(f"Will explode column '{column_to_explode}' and link with {linking_columns}.")
             
             for source_chunk_df in pd.read_sql(source_sql, engine, chunksize=PROCESSING_CHUNK_SIZE):
-                for col in source_multi_cols:
-                    source_chunk_df[col] = source_chunk_df[col].apply(_parse_multi_value, separator=separator)
                 
-                source_chunk_df.dropna(subset=source_multi_cols, inplace=True)
-                exploded_df = source_chunk_df.explode(source_multi_cols)
+                # Split only the target column, not all of them.
+                source_chunk_df[column_to_explode] = source_chunk_df[column_to_explode].apply(_parse_multi_value, separator=separator)
+                
+                source_chunk_df.dropna(subset=[column_to_explode], inplace=True)
+                
+                # Explode only on the target column.
+                # The other columns (e.g., period, project_name) will be automatically duplicated.
+                exploded_df = source_chunk_df.explode(column_to_explode)
+                
                 exploded_df.dropna(subset=source_multi_cols, inplace=True)
                 
                 if exploded_df.empty:
                     continue
 
+                # Clean up the newly exploded column and the linking columns
                 for col in source_multi_cols:
                     exploded_df[col] = exploded_df[col].astype(str).str.strip()
                 
+                # Filter out rows where the key columns became an empty string
                 empty_string_mask = pd.Series(False, index=exploded_df.index)
                 for col in source_multi_cols:
                     empty_string_mask |= (exploded_df[col] == '')
@@ -326,14 +337,14 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                 if exploded_df.empty:
                     continue
 
+                # Use all source columns (linking ones + exploded one) to find the match in the lookup table
                 multi_index = pd.MultiIndex.from_frame(exploded_df[source_multi_cols])
                 exploded_df[assoc_lookup_col] = multi_index.map(lookup_dict)
 
                 unmatched_in_chunk_df = exploded_df[exploded_df[assoc_lookup_col].isna()]
-                unmatched_in_chunk_count = len(unmatched_in_chunk_df)
-                total_unmatched_count += unmatched_in_chunk_count
+                total_unmatched_count += len(unmatched_in_chunk_df)
                 
-                if unmatched_in_chunk_count > 0 and len(unmatched_samples) < MAX_SAMPLES_TO_LOG:
+                if not unmatched_in_chunk_df.empty and len(unmatched_samples) < MAX_SAMPLES_TO_LOG:
                     unique_unmatched_tuples = set(unmatched_in_chunk_df[source_multi_cols].itertuples(index=False, name=None))
                     unmatched_samples.update(unique_unmatched_tuples)
 
@@ -345,13 +356,13 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                     final_chunk_df.to_sql(name=assoc_table, con=engine, schema=schema_name, if_exists='append', index=False)
             
             if total_unmatched_count > 0:
-                logger.debug(f"WARNING A total of {total_unmatched_count} values from {source_table} could not find a match in {lookup_table} and were not inserted.")
+                logger.debug(f"WARNING: A total of {total_unmatched_count} values from {source_table} could not find a match in {lookup_table} and were not inserted.")
                 if unmatched_samples:
                     logger.debug(f"Sample of distinct unmatched source values (up to {MAX_SAMPLES_TO_LOG}):")
-                    samples_to_log = list(unmatched_samples)[:MAX_SAMPLES_TO_LOG]
-                    for sample in samples_to_log:
+                    for sample in list(unmatched_samples)[:MAX_SAMPLES_TO_LOG]:
                          logger.debug(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
 
+            # --- Finalizing Table ---
             logger.debug(f"Finalizing table {full_assoc_name}...")
             with engine.begin() as conn:
                 temp_table_name = f"#{assoc_table}_temp_distinct"
