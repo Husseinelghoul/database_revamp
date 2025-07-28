@@ -75,11 +75,10 @@ def _convert_text_to_nvarchar_max(conn, schema_name: str):
 
 def _apply_changes_from_csv(engine, conn, schema_name: str, csv_path: str):
     """
-    Applies specific data type changes from a CSV file, including the
-    original data cleaning logic, using SQL Server-compatible syntax.
+    Applies specific data type changes from a CSV file. This version robustly
+    cleans and preserves numeric, date, and bit data while nullifying only truly non-convertible values.
     """
     try:
-        # This function should be defined in your project to load the CSV
         dtypes_df = pd.read_csv(csv_path) 
     except Exception as e:
         logger.error(f"Could not load schema changes from {csv_path}. Aborting. Error: {e}")
@@ -89,10 +88,8 @@ def _apply_changes_from_csv(engine, conn, schema_name: str, csv_path: str):
         logger.debug("No changes specified in CSV. Skipping this phase.")
         return
 
-    # --- THE FIX: Build a WHERE clause compatible with SQL Server ---
     where_clauses = []
     for _, row in dtypes_df.iterrows():
-        # Sanitize table and column names to prevent issues
         table = str(row['table_name']).strip().replace("'", "''")
         column = str(row['column_name']).strip().replace("'", "''")
         where_clauses.append(f"(TABLE_NAME = '{table}' AND COLUMN_NAME = '{column}')")
@@ -103,49 +100,69 @@ def _apply_changes_from_csv(engine, conn, schema_name: str, csv_path: str):
     full_where_clause = " OR ".join(where_clauses)
     
     metadata_query = text(f"""
-        SELECT TABLE_NAME, COLUMN_NAME
+        SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
         FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = '{schema_name}' AND ({full_where_clause});
     """)
-    # -----------------------------------------------------------------
     
     metadata_cache = {(row.TABLE_NAME, row.COLUMN_NAME): row for row in conn.execute(metadata_query).fetchall()}
 
     for _, row in dtypes_df.iterrows():
         table = str(row['table_name']).strip()
         column = str(row['column_name']).strip()
-        old_type_from_csv = str(row['old_data_type']).strip()
         new_type_from_csv = str(row['new_data_type']).strip()
 
-        if (table, column) not in metadata_cache:
+        db_metadata = metadata_cache.get((table, column))
+        if not db_metadata:
             logger.warning(f"Column {schema_name}.{table}.{column} from CSV does not exist. Skipping.")
             continue
 
         try:
-            # --- Restored Original Data Cleaning Logic ---
-            string_like_old_types = ('varchar', 'nvarchar', 'char', 'nchar', 'text', 'ntext')
-            is_old_type_string_like = any(old_type_from_csv.lower().startswith(s_type) for s_type in string_like_old_types)
+            actual_db_type = db_metadata.DATA_TYPE.lower()
+            string_db_types = ('varchar', 'nvarchar', 'char', 'nchar', 'text', 'ntext')
 
-            if is_old_type_string_like:
+            if actual_db_type in string_db_types:
                 target_base_type = new_type_from_csv.lower().split('(')[0]
                 safe_table = f'"{schema_name}"."{table}"'
                 safe_column = f'"{column}"'
-
+                
+                # --- FIX: Apply the robust CASE logic to BIT conversions ---
                 if target_base_type == 'bit':
-                    logger.debug(f"Cleaning {safe_table}.{safe_column} for BIT conversion.")
-                    clean_sql = text(f"UPDATE {safe_table} SET {safe_column} = NULL WHERE LTRIM(RTRIM(CAST({safe_column} AS VARCHAR(MAX)))) = '' OR (CAST({safe_column} AS VARCHAR(MAX)) NOT IN ('0', '1') AND {safe_column} IS NOT NULL);")
-                    conn.execute(clean_sql)
+                    logger.debug(f"Robustly cleaning {safe_table}.{safe_column} for BIT conversion.")
+                    clean_and_update_sql = text(f"""
+                        UPDATE {safe_table}
+                        SET {safe_column} = CASE
+                            WHEN UPPER(LTRIM(RTRIM({safe_column}))) IN ('1', 'TRUE', 'T', 'Y', 'YES') THEN '1'
+                            WHEN UPPER(LTRIM(RTRIM({safe_column}))) IN ('0', 'FALSE', 'F', 'N', 'NO') THEN '0'
+                            ELSE NULL
+                        END;
+                    """)
+                    conn.execute(clean_and_update_sql)
                 
                 elif target_base_type in ('float', 'real', 'int', 'bigint', 'decimal', 'numeric', 'money'):
-                    logger.debug(f"Cleaning {safe_table}.{safe_column} for numeric conversion.")
-                    clean_sql = text(f"UPDATE {safe_table} SET {safe_column} = NULL WHERE TRY_CONVERT({new_type_from_csv}, {safe_column}) IS NULL AND {safe_column} IS NOT NULL;")
-                    conn.execute(clean_sql)
+                    logger.debug(f"Robustly cleaning and preserving {safe_table}.{safe_column} for numeric conversion.")
+                    robust_cleaned_column = f"TRIM(REPLACE(REPLACE({safe_column}, NCHAR(160), N' '), NCHAR(9), N' '))"
+                    clean_and_update_sql = text(f"""
+                        UPDATE {safe_table}
+                        SET {safe_column} = CASE
+                            WHEN TRY_CONVERT({new_type_from_csv}, {robust_cleaned_column}) IS NOT NULL THEN {robust_cleaned_column}
+                            ELSE NULL
+                        END;
+                    """)
+                    conn.execute(clean_and_update_sql)
 
                 elif target_base_type in ('date', 'datetime', 'datetime2'):
-                    logger.debug(f"Cleaning {safe_table}.{safe_column} for datetime conversion.")
-                    clean_column_for_datetime_conversion(conn, schema_name, table, column)
-                    final_clean_sql = text(f"UPDATE {safe_table} SET {safe_column} = NULL WHERE {safe_column} IS NOT NULL AND TRY_CONVERT({new_type_from_csv}, {safe_column}) IS NULL;")
-                    conn.execute(final_clean_sql)
+                    logger.debug(f"Robustly cleaning {safe_table}.{safe_column} for date conversion.")
+                    clean_and_update_sql = text(f"""
+                        UPDATE {safe_table}
+                        SET {safe_column} = CASE
+                            WHEN LTRIM(RTRIM({safe_column})) IN ('', 'NULL', 'NA', 'N/A') THEN NULL
+                            WHEN TRY_CONVERT({new_type_from_csv}, {safe_column}) IS NOT NULL THEN {safe_column}
+                            ELSE NULL
+                        END
+                        WHERE {safe_column} IS NOT NULL;
+                    """)
+                    conn.execute(clean_and_update_sql)
 
             logger.debug(f"Attempting to alter {schema_name}.{table}.{column} to type {new_type_from_csv}.")
             alter_sql = text(f'ALTER TABLE "{schema_name}"."{table}" ALTER COLUMN "{column}" {new_type_from_csv}')
