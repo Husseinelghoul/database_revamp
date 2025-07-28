@@ -16,8 +16,6 @@ community_facility_brief,period,varchar,date
 community_facility_brief,infra_finish_date,varchar,date
 community_facility_brief,last_updated,varchar,datetime
 contract_vo_status,period,varchar,date
-contract_vo_status,approved_vo_value,varchar,float
-contract_vo_status,pvr_value,varchar,float
 contract_vo_status,last_updated,varchar,datetime
 key_achievements,end_date,varchar,date
 key_achievements,last_updated,varchar,datetime
@@ -32,7 +30,6 @@ project_kpi,period,varchar,date
 project_kpi,kpi_value,varchar,float
 project_kpi,last_updated,varchar,datetime
 project_kpi,is_executive_kpi,varchar,bit
-project_kpi,kpi_sorting_order,varchar,int
 project_management,time_elapsed_percentage,varchar,float
 project_management,spi,varchar,float
 project_management,project_management_var,varchar,int
@@ -137,7 +134,6 @@ contract_vo_status,original_contract_value,varchar,float
 contract_vo_status,revised_contract_value,varchar,float
 contract_vo_status,forecasted_contract_value,varchar,float
 community_facility_brief,updated_by,varchar,varchar
-project_milestone,milestone_sorting_order,varchar,int
 project_summary,submitted_eot_date,varchar,date
 commercial_status,construction_budget,varchar,bigint
 project_sustainability,waste_recycled_percentage,varchar,float
@@ -154,3 +150,5 @@ lookup_project_to_project_phase_category,period,nvarchar,date
 potential_budget_uplift_scope,period,varchar,date
 entity_key_achievements,period,varchar,date
 media_path,period,varchar,date
+key_achievements,start_date,nvarchar,date
+project_summay,last_updated,varchar,datetime
