@@ -187,7 +187,7 @@ def link_project_management_to_sources(target_db_url, schema_name):
     Updates the project_management table by linking it to both the
     project_status and project_summary tables.
 
-    - Links to project_status on 'project_name', 'period', and 'phase'.
+    - Links to project_status on 'project_name', 'period', 'phase', 'stage_status', and 'sub_stage'.
     - Links to project_summary on 'project_name' and 'period'.
     """
     engine = create_engine(target_db_url)
@@ -229,7 +229,9 @@ def link_project_management_to_sources(target_db_url, schema_name):
                 JOIN {full_ps_table} AS ps 
                     ON pm.project_name = ps.project_name
                     AND pm.period = ps.period
-                    AND pm.phase = ps.phase;
+                    AND pm.phase = ps.phase
+                    AND pm.stage_status = ps.stage_status
+                    AND pm.sub_stage = ps.sub_stage;
             """)
             status_result = conn.execute(update_status_sql)
             logger.debug(f"Linked {status_result.rowcount} rows to project_status.")
