@@ -99,7 +99,6 @@ project_summary,longitude,varchar,float
 project_summary,overall_planned_finish_date,varchar,date
 project_summary,overall_forecasted_finish_date,varchar,date
 project_summary,is_executive_project,bigint,bit
-project_summary,is_subject_to_rebaseline,varchar,bit
 project_summary,decree_end_date,varchar,date
 project_summary,project_sorting_order,varchar,int
 project_summary,commencement_date,varchar,date
