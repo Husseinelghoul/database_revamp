@@ -60,7 +60,7 @@ def create_media_lookup(target_db_url, schema_name, config_csv_path="config/sche
     Creates dedicated media lookup tables based on a configuration file.
     This version is fixed to handle multiple JSON formats correctly.
     """
-    engine = create_engine(target_db_url)
+    engine = create_engine(target_db_url,connect_args={"charset": "utf8"},fast_executemany=True)
     try:
         config_df = pd.read_csv(config_csv_path)
     except FileNotFoundError:
@@ -148,7 +148,7 @@ def create_lookup_project_to_media(target_db_url, schema_name):
         'dynamic_images_files', 'additional_documents_files',
         'progress_videos', 'project_management_files'
     ]
-    engine = create_engine(target_db_url)
+    engine = create_engine(target_db_url,connect_args={"charset": "utf8"},fast_executemany=True)
     full_target_name = f'"{schema_name}"."lookup_project_to_media"'
     full_source_name = f'"{schema_name}"."project_summary"'
     full_lookup_name = f'"{schema_name}"."lookup_project_to_phase"'
