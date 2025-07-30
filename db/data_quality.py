@@ -10,6 +10,37 @@ logger = setup_logger()
 
 
 # --- Sub-functions ---
+def _update_rebaseline_column_in_place(conn, schema_name: str):
+    """
+    Updates the 'is_subject_to_rebaseline' column values directly.
+    ...
+    """
+    table_name = 'project_summary'
+    column_name = 'is_subject_to_rebaseline'
+
+    logger.debug(f"Updating data in-place for column '{column_name}'...")
+
+    # A transaction ensures the entire update is atomic.
+    # REMOVED: with conn.begin() as transaction:
+    # The transaction is now managed by the calling function.
+    try:
+        update_sql = text(f'''
+            UPDATE "{schema_name}"."{table_name}"
+            SET
+                "{column_name}" = CASE
+                    WHEN UPPER(TRIM(CAST("{column_name}" AS NVARCHAR(MAX)))) = 'SUBJECT TO REBASELINE' THEN '1'
+                    ELSE '0'
+                END;
+        ''')
+        result = conn.execute(update_sql)
+        logger.debug(f"In-place update complete. {result.rowcount} rows affected.")
+        # REMOVED: transaction.commit()
+    except Exception as e:
+        # The logger is good, but the raise is most important.
+        # The outer 'with' block will catch the exception and roll back the whole transaction.
+        logger.error(f"Execution failed for _update_rebaseline_column_in_place: {e}")
+        # REMOVED: transaction.rollback()
+        raise # Re-raise the exception to trigger the outer rollback
 
 def _convert_varchar_to_nvarchar(conn, schema_name: str):
     """
@@ -42,7 +73,6 @@ def _convert_varchar_to_nvarchar(conn, schema_name: str):
         conn.execute(alter_sql)
     logger.debug("Phase 1: VARCHAR to NVARCHAR conversion complete.")
 
-
 def _convert_text_to_nvarchar_max(conn, schema_name: str):
     """
     Finds all TEXT or NTEXT columns in a schema and converts them to NVARCHAR(MAX).
@@ -73,7 +103,7 @@ def _convert_text_to_nvarchar_max(conn, schema_name: str):
         conn.execute(alter_sql)
     logger.debug("Phase 2: TEXT to NVARCHAR(MAX) conversion complete.")
 
-def _apply_changes_from_csv(engine, conn, schema_name: str, csv_path: str):
+def _apply_changes_from_csv(conn, schema_name: str, csv_path: str):
     """
     Applies specific data type changes from a CSV file. This version robustly
     cleans and preserves numeric, date, and bit data while nullifying only truly non-convertible values.
@@ -184,18 +214,21 @@ def change_data_types(target_db_url: str, schema_name: str, csv_path: str = "con
     
     try:
         with engine.begin() as conn: # All changes are in one transaction
-            
-            logger.debug("--- Phase 1: Applying specific type changes from CSV file... ---")
-            _apply_changes_from_csv(engine, conn, schema_name, csv_path)
-            logger.debug("--- Phase 1: CSV changes complete. ---")
+            logger.debug("--- Phase 1: Applying some data cleaning... ---")
+            _update_rebaseline_column_in_place(conn, schema_name)
+            logger.debug("--- Phase 1: Applying some data cleaning complete. ---")
 
-            logger.debug("--- Phase 2: Converting TEXT/NTEXT columns to NVARCHAR(MAX)... ---")
+            logger.debug("--- Phase 2: Applying specific type changes from CSV file... ---")
+            _apply_changes_from_csv(conn, schema_name, csv_path)
+            logger.debug("--- Phase 2: CSV changes complete. ---")
+
+            logger.debug("--- Phase 3: Converting TEXT/NTEXT columns to NVARCHAR(MAX)... ---")
             _convert_text_to_nvarchar_max(conn, schema_name)
-            logger.debug("--- Phase 2: TEXT to NVARCHAR(MAX) conversion complete. ---")
+            logger.debug("--- Phase 3: TEXT to NVARCHAR(MAX) conversion complete. ---")
 
-            logger.debug("--- Phase 3: Converting VARCHAR columns to NVARCHAR... ---")
+            logger.debug("--- Phase 4: Converting VARCHAR columns to NVARCHAR... ---")
             _convert_varchar_to_nvarchar(conn, schema_name)
-            logger.debug("--- Phase 3: VARCHAR to NVARCHAR conversion complete. ---")
+            logger.debug("--- Phase 4: VARCHAR to NVARCHAR conversion complete. ---")
             
         logger.debug("Data type conversion process completed successfully.")
     except Exception as e:

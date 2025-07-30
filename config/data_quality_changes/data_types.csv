@@ -151,3 +151,4 @@ entity_key_achievements,period,varchar,date
 media_path,period,varchar,date
 key_achievements,start_date,nvarchar,date
 project_summay,last_updated,varchar,datetime
+project_summary,is_subject_to_rebaseline,varchar,bit
