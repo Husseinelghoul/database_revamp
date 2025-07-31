@@ -71,3 +71,67 @@ def split_columns(target_db_url, schema_name, csv_path="config/schema_changes/co
             except Exception as e:
                 logger.error(f"Failed to create column {new_column} in {schema_name}.{table_name}: {e}")
 
+def merge_milestone_status(target_db_url: str, schema_name: str):
+    """
+    Consolidates the 'status' column into the 'milestone_status' column for
+    the 'project_milestone' table.
+
+    Connects to the specified database and performs two actions within a
+    single transaction:
+    1. Merges non-null values from 'status' into 'milestone_status' using COALESCE.
+    2. Drops the now-redundant 'status' column.
+
+    The operation is idempotent; it will not cause an error if the 'status'
+    column has already been removed.
+
+    Args:
+        target_db_url (str): The connection string for the target MSSQL database.
+        schema_name (str): The name of the database schema to operate on.
+    """
+    table_name = 'project_milestone'
+    primary_status_col = 'milestone_status'
+    secondary_status_col = 'status'
+
+    logger.debug(
+        f"Attempting to merge '{secondary_status_col}' into '{primary_status_col}' "
+        f"in table '{schema_name}.{table_name}'."
+    )
+
+    try:
+        engine = create_engine(target_db_url)
+        with engine.begin() as conn:
+            # This single SQL block checks for the column's existence before acting.
+            # This makes the operation safe to re-run (idempotent).
+            merge_and_drop_sql = text(f"""
+                IF COL_LENGTH(:schema_name + '.' + :table_name, :secondary_col) IS NOT NULL
+                BEGIN
+                    -- Step 1: Merge data using COALESCE to prioritize the primary column.
+                    UPDATE {schema_name}.{table_name}
+                    SET {primary_status_col} = COALESCE({primary_status_col}, {secondary_status_col});
+
+                    -- Step 2: Drop the now-redundant secondary column.
+                    ALTER TABLE {schema_name}.{table_name}
+                    DROP COLUMN {secondary_status_col};
+
+                    PRINT 'Successfully merged and dropped column {secondary_status_col}.';
+                END
+                ELSE
+                BEGIN
+                    PRINT 'Column {secondary_status_col} not found. No action taken.';
+                END
+            """)
+
+            conn.execute(merge_and_drop_sql, {
+                "schema_name": schema_name,
+                "table_name": table_name,
+                "secondary_col": secondary_status_col
+            })
+
+            logger.debug(f"Successfully processed table '{schema_name}.{table_name}'.")
+
+    except Exception as e:
+        logger.error(
+            f"Failed to consolidate columns in '{schema_name}.{table_name}': {e}"
+        )
+        # Re-raise the exception to halt execution if this is part of a larger script
+        raise

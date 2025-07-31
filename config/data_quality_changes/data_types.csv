@@ -145,10 +145,9 @@ commercial_status,contingency,varchar,bigint
 commercial_status,management_fees,varchar,bigint
 key_achievements,period,varchar,date
 lookup_project_to_phase,period,nvarchar,date
-lookup_project_to_project_phase_category,period,nvarchar,date
 potential_budget_uplift_scope,period,varchar,date
 entity_key_achievements,period,varchar,date
 media_path,period,varchar,date
 key_achievements,start_date,nvarchar,date
-project_summay,last_updated,varchar,datetime
+project_summary,last_updated,varchar,datetime
 project_summary,is_subject_to_rebaseline,varchar,bit

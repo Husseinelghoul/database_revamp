@@ -7,11 +7,11 @@ from db.data_integrity import (add_primary_keys,
                                implement_many_to_many_relations,
                                implement_one_to_many_relations)
 from db.data_migrator import migrate_data
-from db.data_quality import apply_data_quality_rules, change_data_types
+from db.data_quality import apply_data_quality_rules, change_data_types, set_health_safety_default
 from db.database_optimization import create_project_period_indexes
 from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
-from db.schema_changes import split_columns
+from db.schema_changes import split_columns, merge_milestone_status
 from db.schema_writer import read_schema, replicate_schema_with_sql
 from db.sync_master_tables import (merge_master_tables, populate_master_tables,
                                    streamlined_sync_master_tables)
@@ -100,9 +100,11 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
     else:
         phase_start = time.time()
         phase_end = time.time()
-        logger.info("Phase 5: Splitting Columns and tables")
-        logger.info("Splitting Columns - 5")
+        logger.info("Phase 5: Splitting and merging")
+        logger.info("Splitting Columns - 5a")
         split_columns(target_db_url, target_schema)
+        logger.info("Merging milestone_status column")
+        merge_milestone_status(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 5 completed in {phase_end - phase_start:.2f} seconds")
     # Phase 6: Primary keys
@@ -125,6 +127,8 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         change_data_types(target_db_url, target_schema)
         logger.info(f"Applying Constraints - 7b")
         # apply_data_quality_rules(target_db_url, target_schema)
+        logger.info("Applying other data quality rules - 7c")
+        set_health_safety_default(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 7 completed in {phase_end - phase_start:.2f} seconds")
 

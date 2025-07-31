@@ -85,8 +85,8 @@ project_summary,Overall_Forecasted_Finish_Date,overall_forecasted_finish_date
 project_summary,isExecutiveProject,is_executive_project
 project_summary,Rebaseline,is_subject_to_rebaseline
 project_summary,Reason_Rebaseline,reason_rebaseline
-project_summary,Delay_Reason,delay_reason
-project_summary,Delay_Code,delay_code
+project_summary,Delay_Reason,delay_status
+project_summary,Delay_Code,delay_status_code
 project_summary,CPDS_project_id,cpds_project_id
 project_summary,ID,id
 project_summary,svp,delivery_project_manager
@@ -116,3 +116,9 @@ project_sustainability,reinvented_echonomy_percentage,reinvented_economy_percent
 project_sustainability,reinvented_echonomy_value,reinvented_economy_value
 project_management,manhours,man_hours
 feedback,Application,application
+key_achievments_plan,next_plan_delim,plans_next_period
+key_achievments_plan,key_achievments_delim,key_achievements_last_period
+role_template,ID,id
+user_entity,ID,id
+user_project,ID,id
+user_view_permission,ID,id

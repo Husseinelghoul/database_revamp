@@ -111,7 +111,7 @@ def create_media_lookup(target_db_url, schema_name, config_csv_path="config/sche
             output_df = melted_df.explode('file_path').dropna(subset=['file_path'])
             
             if output_df.empty:
-                logger.warning(f"No valid file paths found after parsing for {source_table}.")
+                logger.debug(f"No valid file paths found after parsing for {source_table}.")
                 continue
 
             output_df.rename(columns={source_pk: target_fk_col}, inplace=True)

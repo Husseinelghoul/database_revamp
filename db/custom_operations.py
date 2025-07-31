@@ -1,9 +1,8 @@
 import json
+from sqlalchemy.engine import Connection
 
 import pandas as pd
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.sql.sqltypes import DATE, INTEGER, NVARCHAR
+from sqlalchemy import create_engine, text
 
 from utils.logger import setup_logger
 

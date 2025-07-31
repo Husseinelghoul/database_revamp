@@ -33,3 +33,4 @@ key_risks,period-project_name-phase,lookup_project_to_phase_id,lookup_project_to
 authority_approvals_tracking,period-project_name-phase,lookup_project_to_phase_id,lookup_project_to_phase,id,period-project_name-phase
 key_achievements,period-project_name-phase,lookup_project_to_phase_id,lookup_project_to_phase,id,period-project_name-phase
 project_milestone,period-project_name-phase,lookup_project_to_phase_id,lookup_project_to_phase,id,period-project_name-phase
+key_risks,risk_probability,master_risk_probability_id,master_rating,id,rating
