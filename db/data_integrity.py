@@ -109,16 +109,15 @@ def create_one_to_many_for_project_phase(target_db_url: str, schema_name: str):
     logger.debug("Starting one-to-many relationship creation for project phase...")
     engine = create_engine(target_db_url)
 
+    # Corrected table name from "key_risk" to "key_risks"
     source_tables = [
-        "key_risk",
+        "key_risks",
         "authority_approvals_tracking",
         "key_achievements",
         "project_milestone"
     ]
     lookup_table = "lookup_project_to_phase"
-    # The new column to be added to each source table.
     new_fk_column = "lookup_project_to_phase_id"
-    # The composite key columns for the join.
     join_keys = ["period", "project_name", "phase"]
 
     with engine.begin() as conn:
@@ -153,7 +152,6 @@ def create_one_to_many_for_project_phase(target_db_url: str, schema_name: str):
                 logger.debug(f"Matched and updated {result.rowcount} rows in {table}.")
 
                 # 4. Check for and report on unmatched rows.
-                # This query finds rows where an update was possible (keys are not null) but no match was found.
                 unmatched_conditions = " AND ".join([f'"{key}" IS NOT NULL' for key in join_keys])
                 unmatched_query = text(f"""
                     SELECT COUNT(*)
@@ -169,7 +167,6 @@ def create_one_to_many_for_project_phase(target_db_url: str, schema_name: str):
 
             except Exception as e:
                 logger.error(f"An error occurred while processing table '{table}': {e}")
-                # Continue to the next table even if one fails.
                 continue
     logger.debug("One-to-many relationship creation for project phase finished.")
 
@@ -194,10 +191,8 @@ def create_many_to_many_for_project_phase(target_db_url: str, schema_name: str):
     }
     lookup_table = "lookup_project_to_phase"
     lookup_fk_column = "lookup_project_to_phase_id"
-    # The separator for the multi-valued 'phase' column.
     separator = "$@"
     
-    # --- Cache the lookup table in memory for faster processing ---
     try:
         lookup_df = pd.read_sql(f'SELECT id, period, project_name, phase FROM "{schema_name}"."{lookup_table}"', engine)
         lookup_df.rename(columns={'id': lookup_fk_column}, inplace=True)
@@ -211,34 +206,33 @@ def create_many_to_many_for_project_phase(target_db_url: str, schema_name: str):
         logger.debug(f"--- Processing relation for: {schema_name}.{assoc_table} ---")
 
         try:
-            # 1. Fetch source data into a pandas DataFrame.
-            # Assuming the primary key of the source table is 'id'.
             source_sql = f'SELECT id AS "{source_fk_column}", period, project_name, phase FROM "{schema_name}"."{table}"'
             source_df = pd.read_sql(source_sql, engine)
             
-            # Filter out rows where key columns are null before processing.
             source_df.dropna(subset=['period', 'project_name', 'phase'], inplace=True)
             if source_df.empty:
                 logger.debug(f"Source table '{table}' has no data to process after dropping nulls. Skipping.")
                 continue
 
-            # 2. Process the multi-valued 'phase' column.
-            # Split the string by the separator into a list of strings.
-            source_df['phase_list'] = source_df['phase'].str.split(separator)
+            # --- FIX STARTS HERE ---
+            # 1. Ensure the 'phase' column is a string type, then split it into a list.
+            # This overwrites the original 'phase' column, avoiding duplicate columns later.
+            source_df['phase'] = source_df['phase'].astype(str).str.split(separator)
             
-            # 3. Explode the DataFrame to create a row for each phase.
-            # This creates new rows, duplicating 'period', 'project_name', and the source ID.
-            exploded_df = source_df.explode('phase_list')
-            exploded_df.rename(columns={'phase_list': 'phase'}, inplace=True)
+            # 2. Explode the DataFrame on the 'phase' column (which is now a list).
+            exploded_df = source_df.explode('phase')
+            
+            # 3. Strip whitespace from the new 'phase' values.
+            # This now works because exploded_df['phase'] is a Series.
             exploded_df['phase'] = exploded_df['phase'].str.strip()
+            # --- FIX ENDS HERE ---
 
             # 4. Merge with the lookup table to find the matching IDs.
-            # This is equivalent to a SQL JOIN but done in memory with pandas.
             merged_df = pd.merge(
                 exploded_df[[source_fk_column, 'period', 'project_name', 'phase']],
                 lookup_df,
                 on=['period', 'project_name', 'phase'],
-                how='inner' # 'inner' join ensures we only keep matched rows.
+                how='inner'
             )
             
             # 5. Prepare the final data for the associative table.
@@ -262,7 +256,6 @@ def create_many_to_many_for_project_phase(target_db_url: str, schema_name: str):
                 """
                 conn.execute(text(create_sql))
             
-            # Use pandas to_sql for efficient bulk insertion.
             if not final_mapping_df.empty:
                 final_mapping_df.to_sql(name=assoc_table, con=engine, schema=schema_name, if_exists='append', index=False)
                 logger.debug(f"Successfully populated {assoc_table}.")
