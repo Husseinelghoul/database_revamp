@@ -1,17 +1,23 @@
 import time
 
 from config.db_config import build_connection_url, load_config
-from db.custom_operations import create_lookup_project_to_project_phase_category, implement_predecessor_successor, link_project_management_to_sources
-from db.create_lookup_media_tables import create_lookup_project_to_media, create_media_lookup
+from db.create_lookup_media_tables import (create_lookup_project_to_media,
+                                           create_media_lookup)
+from db.custom_operations import (
+    create_lookup_project_to_project_phase_category,
+    implement_predecessor_successor, link_project_management_to_sources)
 from db.data_integrity import (add_primary_keys,
+                               create_many_to_many_for_project_phase,
+                               create_one_to_many_for_project_phase,
                                implement_many_to_many_relations,
                                implement_one_to_many_relations)
 from db.data_migrator import migrate_data
-from db.data_quality import apply_data_quality_rules, change_data_types, set_health_safety_default
+from db.data_quality import (apply_data_quality_rules, change_data_types,
+                             set_health_safety_default)
 from db.database_optimization import create_project_period_indexes
 from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
-from db.schema_changes import split_columns, merge_milestone_status
+from db.schema_changes import merge_milestone_status, split_columns
 from db.schema_writer import read_schema, replicate_schema_with_sql
 from db.sync_master_tables import (merge_master_tables, populate_master_tables,
                                    streamlined_sync_master_tables)
@@ -159,6 +165,10 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         populate_master_tables(target_db_url, target_schema)
         logger.info(f"Merging master tables - 9b")
         merge_master_tables(target_db_url, target_schema)
+        logger.info('implementing relationships with project_to_phase (many to many)')
+        create_many_to_many_for_project_phase(target_db_url,target_schema)
+        logger.info('implementing relationships with project_to_phase (one to many)')
+        create_one_to_many_for_project_phase(target_db_url,target_schema)
         logger.info(f"Implementing one to many relations - 9c")
         implement_one_to_many_relations(target_db_url, target_schema)
         logger.info(f"Implementing many to many relations - 9d")
