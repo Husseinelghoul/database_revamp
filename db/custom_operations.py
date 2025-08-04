@@ -323,7 +323,7 @@ def create_lookup_project_to_project_phase_category(target_db_url: str,schema_na
                 project_df = pd.read_sql(query, connection, params={'project_name': project_name})
 
                 if project_df.empty:
-                    logger.warning(f"No data found for project '{project_name}'. Skipping.")
+                    logger.d(f"No data found for project '{project_name}'. Skipping.")
                     continue
 
                 # --- Data Transformation ---
