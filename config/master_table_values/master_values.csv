@@ -1,6 +1,6 @@
 master_contract_type,master_rating,master_risk_category,master_risk_discipline,master_risk_owner,master_project_stage_status,master_project_sub_stage,master_project_phase_category,master_project_classification,master_entity_category,master_pricing_type,master_reason_for_delay,master_location
 Supervision,Low,RC2,RS2,RJ3,Initiation,Masterplan Validation,Ambulance Point,Bid-Build,Aldar Investment,Fee Based,Delay in Initiation (Requirements Gathering & RFP Preparation),ksa
-Consultantcy,Medium,Operational,Civil,Ahmed Gamal,LDC Procurement,Preconcept Masterplan,Bridge,Design,Government,Fixed Price,Incomplete Project Transfer Information (Project Brief/Design/Tender Documentation),dubai
+Consultancy,Medium,Operational,Civil,Ahmed Gamal,LDC Procurement,Preconcept Masterplan,Bridge,Design,Government,Fixed Price,Incomplete Project Transfer Information (Project Brief/Design/Tender Documentation),dubai
 Construction,High,,,,Design,Design Validation,Building,Design & Build,Aldar Development,,Outstanding Project Budget Transfer,abudhabi
 ,Closed,,,,Contractor Procurement,Data Collection & Concept design,Civil Defence,Design-Bid-Build,,,Outstanding Project Contract Novation,
 ,,,,,Construction,D&B Tender Documents (TD),Clinics,Development Agreement,,,Change of Scope (Change to or Additional Requirements),

@@ -1,20 +1,15 @@
-import pandas as pd
 import os
-from sqlalchemy import VARCHAR, MetaData, Table, create_engine, inspect, text, NVARCHAR
+
+import pandas as pd
+from sqlalchemy import (NVARCHAR, VARCHAR, MetaData, Table, create_engine,
+                        inspect, text)
+from sqlalchemy.types import NVARCHAR, VARCHAR
 
 from db.data_migrator import migrate_data
 from utils.logger import setup_logger
 
 logger = setup_logger()
-from sqlalchemy import inspect, text
-from sqlalchemy.types import VARCHAR, NVARCHAR
-# other necessary imports (pandas, os, sqlalchemy.create_engine, logging)
-import pandas as pd
-import os
-from sqlalchemy import create_engine
-import logging
 
-logger = logging.getLogger(__name__)
 
 
 def _resize_text_columns(conn, inspector, schema_name, table_name):
@@ -54,7 +49,9 @@ def drop_master_tables(target_db_url, target_schema):
 
     try:
         all_target_tables = inspector.get_table_names(schema=target_schema)
-        master_table_names = [name for name in all_target_tables if "master" in name.lower()]
+        master_table_names = [name for name in all_target_tables if "master" in name.lower()
+                              and name.lower() != 'master_project_to_project_phase']
+        
 
         if not master_table_names:
             logger.debug("No master tables found in target to drop.")
@@ -98,7 +95,8 @@ def streamlined_sync_master_tables(source_db_url, target_db_url, source_schema, 
     try:
         # === Step 1: Get the list of master tables from the source ===
         all_source_tables = source_inspector.get_table_names(schema=source_schema)
-        master_table_names = [name for name in all_source_tables if "master" in name.lower()]
+        master_table_names = [name for name in all_source_tables if "master" in name.lower() 
+                              and name.lower() != 'master_project_to_project_phase']
         logger.debug(f"Found {len(master_table_names)} master tables to sync.")
 
         # === Step 2: Reflect and create the exact schema in the target ===

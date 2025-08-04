@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 from sqlalchemy import create_engine, inspect, text, bindparam
-from sqlalchemy.exc import SAWarning
 from sqlalchemy.pool import QueuePool
 
 from config.constants import MIGRATION_CHUNK_SIZE
