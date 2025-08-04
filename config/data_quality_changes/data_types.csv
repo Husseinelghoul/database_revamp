@@ -151,3 +151,4 @@ media_path,period,varchar,date
 key_achievements,start_date,nvarchar,date
 project_summary,last_updated,varchar,datetime
 project_summary,is_subject_to_rebaseline,varchar,bit
+project_summary,is_external_lookup_for_health_and_safety,varchar,bit

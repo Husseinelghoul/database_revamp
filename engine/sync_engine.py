@@ -17,7 +17,7 @@ from db.data_quality import (apply_data_quality_rules, change_data_types,
 from db.database_optimization import create_project_period_indexes
 from db.drop_operations import drop_columns, drop_tables
 from db.rename_operations import rename_columns, rename_tables
-from db.schema_changes import merge_milestone_status, split_columns
+from db.schema_changes import merge_milestone_status, populate_master_roles_for_contract_vo_status
 from db.schema_writer import read_schema, replicate_schema_with_sql
 from db.sync_master_tables import (merge_master_tables, populate_master_tables,
                                    streamlined_sync_master_tables)
@@ -108,7 +108,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         phase_end = time.time()
         logger.info("Phase 5: Splitting and merging")
         logger.info("Splitting Columns - 5a")
-        split_columns(target_db_url, target_schema)
+        populate_master_roles_for_contract_vo_status(target_db_url, target_schema)
         logger.info("Merging milestone_status column")
         merge_milestone_status(target_db_url, target_schema)
         phase_end = time.time()

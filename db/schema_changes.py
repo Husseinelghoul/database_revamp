@@ -1,75 +1,98 @@
-from itertools import product
-
-import pandas as pd
 from sqlalchemy import create_engine, text
 
 from utils.logger import setup_logger
-from utils.utils import load_schema_changes
 
 logger = setup_logger()
 
-def split_columns(target_db_url, schema_name, csv_path="config/schema_changes/column_splits.csv"):
+def populate_master_roles_for_contract_vo_status(target_db_url, schema_name):
     """
-    Create new columns by copying data from source columns in MSSQL, as specified in the CSV file.
+    Adds and populates master role columns in the contract_vo_status table.
+
+    This function connects to a MSSQL database and performs the following actions
+    on the `contract_vo_status` table:
+    1. Creates three new columns: `master_contractor`, `master_pmc`, and `master_consultant`.
+       The data type for these columns is copied from the existing `contractor_name` column.
+    2. Populates the new columns based on the value of the `contract_type` column:
+       - If `contract_type` is 'Construction', `master_contractor` is set to the `contractor_name`.
+       - If `contract_type` is 'Consultancy', `master_consultant` is set to the `contractor_name`.
+       - If `contract_type` is 'Supervision', `master_pmc` is set to the `contractor_name`.
     
-    The CSV file should have the following columns:
-    - table_name: Name of the table where the columns exist.
-    - source_column: Name of the column to copy data from.
-    - new_column: Name of the new column to be created.
+    Args:
+        target_db_url (str): The connection string for the target database.
+        schema_name (str): The name of the database schema (e.g., 'dbo').
     """
-    # Load the schema changes from the CSV file
-    splits_df = load_schema_changes(csv_path)
-    # Connect to the database
+    table_name = "contract_vo_status"
+    source_column = "contractor_name"
+    new_columns = ["master_contractor", "master_pmc", "master_consultant"]
+
     engine = create_engine(target_db_url)
+
     with engine.begin() as conn:
-        for _, row in splits_df.iterrows():
-            table_name = row['table_name']
-            source_column = row['source_column']
-            new_column = row['new_column']
+        try:
+            # --- Step 1: Get the data type of the source column ---
+            logger.debug(f"Fetching column type for '{source_column}' from table '{schema_name}.{table_name}'.")
+            result = conn.execute(text(f"""
+                SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = :schema_name AND TABLE_NAME = :table_name AND COLUMN_NAME = :source_column;
+            """), {"schema_name": schema_name, "table_name": table_name, "source_column": source_column})
             
-            try:
-                # Get the data type, length, precision, and scale of the source column
-                result = conn.execute(text(f"""
-                    SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE
-                    FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = :schema_name AND TABLE_NAME = :table_name AND COLUMN_NAME = :source_column;
-                """), {"schema_name": schema_name, "table_name": table_name, "source_column": source_column})
-                
-                column_info = result.fetchone()
-                if not column_info:
-                    raise ValueError(f"Column {source_column} not found in {schema_name}.{table_name}.")
-                
-                # Extract the column details
-                data_type = column_info[0]
-                char_max_length = column_info[1]
-                numeric_precision = column_info[2]
-                numeric_scale = column_info[3]
-                
-                # Construct the column definition
-                if data_type.upper() in ["VARCHAR", "NVARCHAR", "CHAR", "NCHAR"]:
-                    if char_max_length == -1:  # Handle MAX for VARCHAR(MAX), NVARCHAR(MAX)
-                        column_definition = f"{data_type}(MAX)"
-                    else:
-                        column_definition = f"{data_type}({char_max_length})"
-                elif data_type in ["DECIMAL", "NUMERIC"]:
-                    column_definition = f"{data_type}({numeric_precision}, {numeric_scale})"
-                else:
-                    column_definition = data_type  # For other types like INT, DATE, etc.
-                # Create the new column with the constructed definition
-                conn.execute(text(f"""
-                    ALTER TABLE {schema_name}.{table_name}
-                    ADD {new_column} {column_definition};
-                """))
-                
-                # Copy data from the source column to the new column
-                conn.execute(text(f"""
-                    UPDATE {schema_name}.{table_name}
-                    SET {new_column} = {source_column};
-                """))
-                
-                logger.debug(f"Created column {new_column} in {schema_name}.{table_name} with type {column_definition} and copied data from {source_column}.")
-            except Exception as e:
-                logger.error(f"Failed to create column {new_column} in {schema_name}.{table_name}: {e}")
+            column_info = result.fetchone()
+            if not column_info:
+                raise ValueError(f"Source column '{source_column}' not found in '{schema_name}.{table_name}'.")
+
+            # --- Step 2: Construct the column definition string ---
+            data_type, char_max_length, numeric_precision, numeric_scale = column_info
+            
+            column_definition = ""
+            if data_type.upper() in ["VARCHAR", "NVARCHAR", "CHAR", "NCHAR"]:
+                length = "MAX" if char_max_length == -1 else char_max_length
+                column_definition = f"{data_type}({length})"
+            elif data_type in ["DECIMAL", "NUMERIC"]:
+                column_definition = f"{data_type}({numeric_precision}, {numeric_scale})"
+            else:
+                column_definition = data_type
+            
+            logger.debug(f"Determined column definition for new columns: {column_definition}")
+
+            # --- Step 3: Add the new columns to the table ---
+            for new_column in new_columns:
+                try:
+                    conn.execute(text(f"""
+                        ALTER TABLE {schema_name}.{table_name}
+                        ADD {new_column} {column_definition};
+                    """))
+                    logger.debug(f"Successfully added column '{new_column}' to '{schema_name}.{table_name}'.")
+                except Exception as e:
+                    # This handles the case where the column might already exist
+                    logger.warning(f"Could not add column '{new_column}'. It might already exist. Error: {e}")
+
+            # --- Step 4: Populate the new columns based on contract_type ---
+            logger.debug(f"Populating new columns in '{schema_name}.{table_name}' based on 'contract_type'.")
+            update_statement = text(f"""
+                UPDATE {schema_name}.{table_name}
+                SET
+                    master_contractor = CASE
+                        WHEN contract_type = 'Construction' THEN {source_column}
+                        ELSE NULL
+                    END,
+                    master_consultant = CASE
+                        WHEN contract_type = 'Consultancy' THEN {source_column}
+                        ELSE NULL
+                    END,
+                    master_pmc = CASE
+                        WHEN contract_type = 'Supervision' THEN {source_column}
+                        ELSE NULL
+                    END;
+            """)
+            
+            conn.execute(update_statement)
+            logger.debug("Data population complete.")
+
+        except Exception as e:
+            logger.error(f"An error occurred during the operation on table {schema_name}.{table_name}: {e}")
+            # The 'with engine.begin()' block will automatically roll back the transaction on error.
+
 
 def merge_milestone_status(target_db_url: str, schema_name: str):
     """
