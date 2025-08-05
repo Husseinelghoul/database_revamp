@@ -56,14 +56,9 @@ key_risks,stage_status
 key_risks,sub_stage
 project_summary,procurement_manager
 project_status,procurement_manager
-project_status,phase
 project_status,project_phase_category
 lookup_project_to_phase,project_phase_category
 lookup_project_to_project_phase_category,project_phase_category
-contract_vo_status,phase
-key_risks,phase
-authority_approvals_tracking,phase
-key_achievements,phase
 project_summary,decree_files
 project_summary,plot_plan_files
 project_summary,static_images_files
@@ -71,7 +66,6 @@ project_summary,dynamic_images_files
 project_summary,additional_documents_files
 project_summary,progress_videos
 project_summary,project_management_files
-project_management,phase
 project_management,sub_stage
 project_management,stage_status
 feedback,feedback_attachments
@@ -84,3 +78,10 @@ lookup_project_to_phase,category
 contract_vo_status,master_contractor
 contract_vo_status,master_consultant
 contract_vo_status,master_pmc
+contract_vo_status,phase
+project_milestone,phase
+key_risks,phase
+authority_approvals_tracking,phase
+key_achievements,phase
+project_status,phase
+project_management,phase
