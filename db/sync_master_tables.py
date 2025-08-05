@@ -89,7 +89,6 @@ def streamlined_sync_master_tables(source_db_url, target_db_url, source_schema, 
     source_engine = create_engine(source_db_url)
     target_engine = create_engine(target_db_url)
     source_inspector = inspect(source_engine)
-    target_inspector = inspect(target_engine)
     source_meta = MetaData()
 
     try:
