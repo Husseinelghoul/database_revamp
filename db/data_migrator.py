@@ -21,10 +21,12 @@ def migrate_table_optimized(
     source_schema,
     target_schema,
     project_names=None,
+    periods=None,  # <-- New parameter for periods
     chunksize=MIGRATION_CHUNK_SIZE,
 ):
     """
-    Final version with the UserWarning correctly suppressed and the IN clause fixed.
+    Final version with UserWarning suppressed and dynamic IN clauses for both
+    project_name and period.
     """
     try:
         logger.debug(f"Starting migration for table: {table_name}")
@@ -37,23 +39,41 @@ def migrate_table_optimized(
         except Exception as e:
             raise MigrationError(f"Could not inspect target table {table_name}: {e}")
 
-        # === Step 2: Build and execute the source query ===
+        # === Step 2: Dynamically build the source query based on available filters ===
         source_inspector = inspect(source_engine)
         source_columns = source_inspector.get_columns(table_name, schema=source_schema)
-        has_project_column = any(col["name"].lower() == "project_name" for col in source_columns)
+        source_column_names_lower = {col["name"].lower() for col in source_columns}
 
+        has_project_column = "project_name" in source_column_names_lower
+        has_period_column = "period" in source_column_names_lower
+
+        # --- Dynamic WHERE clause construction ---
+        base_query = f'SELECT * FROM "{source_schema}"."{table_name}"'
+        where_clauses = []
+        params = {}
+        expanding_params = []
+
+        # Add project_name filter if applicable
         if has_project_column and project_names and project_names != ['*']:
-            # 1. Define the query with a named, expandable parameter.
-            query = text(f'SELECT * FROM "{source_schema}"."{table_name}" WHERE project_name IN :names_list')
-            
-            # 2. Mark the parameter for expansion. This turns one parameter into IN (?, ?, ...).
-            query = query.bindparams(bindparam('names_list', expanding=True))
+            where_clauses.append("project_name IN :project_list")
+            params["project_list"] = project_names
+            expanding_params.append(bindparam('project_list', expanding=True))
 
-            # 3. The parameters dict maps the name to the Python list of values.
-            params = {"names_list": project_names}
+        # Add period filter if applicable
+        if has_period_column and periods and periods != ['*']:
+            where_clauses.append("period IN :period_list")
+            params["period_list"] = periods
+            expanding_params.append(bindparam('period_list', expanding=True))
+
+        # Combine clauses and finalize the query
+        if where_clauses:
+            query_string = f"{base_query} WHERE {' AND '.join(where_clauses)}"
+            query = text(query_string)
+            if expanding_params:
+                query = query.bindparams(*expanding_params)
         else:
-            query = text(f'SELECT * FROM "{source_schema}"."{table_name}"')
-            params = {}
+            query = text(base_query)
+        # --- End of dynamic query construction ---
         
         data_reader = pd.read_sql(query, source_engine, params=params, chunksize=chunksize)
 
@@ -101,14 +121,16 @@ def migrate_table_optimized(
     except Exception as e:
         logger.error(f"Failed to migrate data for table: {table_name}. Error: {e}")
         raise MigrationError(f"Failed to migrate table {table_name}: {str(e)}")
-    
+
+
 def migrate_data(
     source_db_url, 
     target_db_url, 
     schema, 
     source_schema: str, 
     target_schema: str,
-    project_names: list = None
+    project_names: list = None,
+    periods: list = None  # <-- New parameter for periods
 ):
     """
     Coordinates the migration process by calling the optimized worker function
@@ -129,8 +151,11 @@ def migrate_data(
 
     if project_names is None:
         project_names = []
+    if periods is None:  # <-- Initialize periods list
+        periods = []
     
     logger.debug(f"Migration starting with project filter: {project_names if project_names else 'ALL PROJECTS'}")
+    logger.debug(f"Migration starting with period filter: {periods if periods else 'ALL PERIODS'}")
 
     try:
         dropped_df = pd.read_csv("config/schema_changes/table_drops.csv")
@@ -155,6 +180,7 @@ def migrate_data(
                 source_schema,
                 target_schema,
                 project_names,
+                periods, # <-- Pass the periods list to the worker
             ): table_name
             for table_name in schema
         }
