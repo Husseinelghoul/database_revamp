@@ -48,7 +48,10 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         schema, tables = read_schema(source_db_url, source_schema)
         logger.info("Writing schema to target database...")
         if application == "insights":
-            filtered_tables = {key: value for key, value in tables.items() if 'master' not in key.lower()}
+            filtered_tables = {
+                    key: value for key, value in tables.items()
+                    if key.lower() == 'master_project_to_project_phase' or 'master' not in key.lower()
+                }
             tables = filtered_tables
         replicate_schema_with_sql(source_db_url, target_db_url, source_schema, target_schema)
         if application == "insights":
@@ -166,8 +169,8 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info(f"Phase 9: Add Foreing Keys for Master Tables")
         logger.info(f"Populating master tables - 9a")
         populate_master_tables(target_db_url, target_schema)
-        logger.info(f"Merging master tables - 9b")
-        merge_master_tables(target_db_url, target_schema)
+        # logger.info(f"Merging master tables - 9b")
+        # merge_master_tables(target_db_url, target_schema)
         logger.info('implementing relationships with project_to_phase (many to many)')
         create_many_to_many_for_project_phase(target_db_url,target_schema)
         logger.info('implementing relationships with project_to_phase (one to many)')
