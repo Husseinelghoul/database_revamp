@@ -42,7 +42,6 @@ project_management,incidents,varchar,int
 project_management,fatalities,varchar,int
 project_management,lti_ratio,varchar,int
 project_management,last_updated,varchar,datetime
-project_management,cost_per_sqm,varchar,bit
 project_milestone,period,nvarchar,date
 project_milestone,milestone_date,varchar,date
 project_milestone,baseline_end_date,varchar,date

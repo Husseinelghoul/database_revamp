@@ -121,4 +121,4 @@ role_template,ID,id
 user_entity,ID,id
 user_project,ID,id
 user_view_permission,ID,id
-key_achievments_plan,start_date,key_achievments_sorting_order
+key_achievments_plan,start_date,key_achievement_sorting_order
