@@ -94,203 +94,16 @@ def add_primary_keys(target_db_url, schema_name):
             except SQLAlchemyError:
                 logger.exception(f"FAILED to set primary key for {full_table_name}. Skipping this table.")
 
-
-def create_one_to_many_for_project_phase(target_db_url: str, schema_name: str):
-    """
-    Creates a one-to-many relationship by adding a foreign key column to several
-    source tables and populating it based on a composite key match with a lookup table.
-
-    The function updates source tables to link to 'lookup_project_to_phase'
-    based on matching 'period', 'project_name', and 'phase'.
-
-    Args:
-        target_db_url (str): The database connection string.
-        schema_name (str): The database schema name.
-    """
-    logger.debug("Starting one-to-many relationship creation for project phase...")
-    engine = create_engine(target_db_url)
-
-    # Corrected table name from "key_risk" to "key_risks"
-    source_tables = [
-        "key_risks",
-        "authority_approvals_tracking",
-        "key_achievements",
-        "project_milestone"
-    ]
-    lookup_table = "lookup_project_to_phase"
-    new_fk_column = "lookup_project_to_phase_id"
-    join_keys = ["period", "project_name", "phase"]
-
-    with engine.begin() as conn:
-        for table in source_tables:
-            logger.debug(f"--- Processing table: {schema_name}.{table} ---")
-            try:
-                # 1. Add the new foreign key column if it doesn't exist.
-                check_col_exists_query = text(f"""
-                    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND COLUMN_NAME = :col
-                """)
-                col_exists = conn.execute(check_col_exists_query, {"schema": schema_name, "table": table, "col": new_fk_column}).fetchone()
-
-                if not col_exists:
-                    conn.execute(text(f'ALTER TABLE "{schema_name}"."{table}" ADD "{new_fk_column}" INT NULL'))
-                    logger.debug(f"Added column '{new_fk_column}' to {schema_name}.{table}")
-                else:
-                    logger.debug(f"Column '{new_fk_column}' already exists in {schema_name}.{table}.")
-
-                # 2. Build the JOIN condition for the composite key.
-                join_conditions = " AND ".join([f'src."{key}" = lkp."{key}"' for key in join_keys])
-
-                # 3. Build and execute the UPDATE statement.
-                update_query = text(f"""
-                    UPDATE src
-                    SET "{new_fk_column}" = lkp.id
-                    FROM "{schema_name}"."{table}" AS src
-                    JOIN "{schema_name}"."{lookup_table}" AS lkp ON {join_conditions}
-                    WHERE src."{new_fk_column}" IS NULL;
-                """)
-                result = conn.execute(update_query)
-                logger.debug(f"Matched and updated {result.rowcount} rows in {table}.")
-
-                # 4. Check for and report on unmatched rows.
-                unmatched_conditions = " AND ".join([f'"{key}" IS NOT NULL' for key in join_keys])
-                unmatched_query = text(f"""
-                    SELECT COUNT(*)
-                    FROM "{schema_name}"."{table}"
-                    WHERE "{new_fk_column}" IS NULL AND {unmatched_conditions};
-                """)
-                unmatched_count = conn.execute(unmatched_query).scalar_one()
-
-                if unmatched_count > 0:
-                    logger.debug(f"Found {unmatched_count} rows in '{table}' that could not be matched to '{lookup_table}'.")
-                else:
-                    logger.debug(f"All relevant rows in '{table}' were successfully matched.")
-
-            except Exception as e:
-                logger.error(f"An error occurred while processing table '{table}': {e}")
-                continue
-    logger.debug("One-to-many relationship creation for project phase finished.")
-
-def create_many_to_many_for_project_phase(target_db_url: str, schema_name: str):
-    """
-    Creates many-to-many relationships by building an associative (mapping) table.
-
-    It reads source tables, splits a multi-valued 'phase' column, and maps the
-    source table's ID to the corresponding 'lookup_project_to_phase' ID.
-
-    Args:
-        target_db_url (str): The database connection string.
-        schema_name (str): The database schema name.
-    """
-    logger.debug("Starting many-to-many relationship creation for project phase...")
-    engine = create_engine(target_db_url)
-
-    source_tables = {
-        "project_status": "project_status_id",
-        "contract_vo_status": "contract_vo_status_id",
-        "project_management": "project_management_id"
-    }
-    lookup_table = "lookup_project_to_phase"
-    lookup_fk_column = "lookup_project_to_phase_id"
-    separator = "$@"
-    
-    try:
-        lookup_df = pd.read_sql(f'SELECT id, period, project_name, phase FROM "{schema_name}"."{lookup_table}"', engine)
-        lookup_df.rename(columns={'id': lookup_fk_column}, inplace=True)
-        logger.debug(f"Cached {len(lookup_df)} rows from lookup table '{lookup_table}'.")
-    except Exception as e:
-        logger.error(f"Could not load lookup table '{lookup_table}'. Aborting. Error: {e}")
-        return
-
-    for table, source_fk_column in source_tables.items():
-        assoc_table = f"mapping_{table}_{lookup_table}"
-        logger.debug(f"--- Processing relation for: {schema_name}.{assoc_table} ---")
-
-        try:
-            source_sql = f'SELECT id AS "{source_fk_column}", period, project_name, phase FROM "{schema_name}"."{table}"'
-            source_df = pd.read_sql(source_sql, engine)
-            
-            source_df.dropna(subset=['period', 'project_name', 'phase'], inplace=True)
-            if source_df.empty:
-                logger.debug(f"Source table '{table}' has no data to process after dropping nulls. Skipping.")
-                continue
-
-            # --- FIX STARTS HERE ---
-            # 1. Ensure the 'phase' column is a string type, then split it into a list.
-            # This overwrites the original 'phase' column, avoiding duplicate columns later.
-            source_df['phase'] = source_df['phase'].astype(str).str.split(separator)
-            
-            # 2. Explode the DataFrame on the 'phase' column (which is now a list).
-            exploded_df = source_df.explode('phase')
-            
-            # 3. Strip whitespace from the new 'phase' values.
-            # This now works because exploded_df['phase'] is a Series.
-            exploded_df['phase'] = exploded_df['phase'].str.strip()
-            # --- FIX ENDS HERE ---
-
-            # 4. Merge with the lookup table to find the matching IDs.
-            merged_df = pd.merge(
-                exploded_df[[source_fk_column, 'period', 'project_name', 'phase']],
-                lookup_df,
-                on=['period', 'project_name', 'phase'],
-                how='inner'
-            )
-            
-            # 5. Prepare the final data for the associative table.
-            final_mapping_df = merged_df[[source_fk_column, lookup_fk_column]].drop_duplicates()
-
-            if final_mapping_df.empty:
-                logger.debug(f"No matches found for table '{table}'. Associative table will be empty.")
-            else:
-                 logger.debug(f"Found {len(final_mapping_df)} unique mappings for '{table}'.")
-
-            # 6. Create the associative table and insert the data.
-            with engine.begin() as conn:
-                logger.debug(f"Recreating empty mapping table: {assoc_table}")
-                conn.execute(text(f'DROP TABLE IF EXISTS "{schema_name}"."{assoc_table}";'))
-                create_sql = f"""
-                CREATE TABLE "{schema_name}"."{assoc_table}" (
-                    "{source_fk_column}" INT NOT NULL,
-                    "{lookup_fk_column}" INT NOT NULL,
-                    CONSTRAINT "PK_{assoc_table}" PRIMARY KEY ("{source_fk_column}", "{lookup_fk_column}")
-                );
-                """
-                conn.execute(text(create_sql))
-            
-            if not final_mapping_df.empty:
-                final_mapping_df.to_sql(name=assoc_table, con=engine, schema=schema_name, if_exists='append', index=False)
-                logger.debug(f"Successfully populated {assoc_table}.")
-
-        except Exception as e:
-            logger.error(f"An error occurred while creating mapping for table '{table}': {e}")
-            continue
-
-    logger.debug("Many-to-many relationship creation for project phase finished.")
-
-
 # Define constants if not globally available
 PROCESSING_CHUNK_SIZE = 10000
-
-def _parse_multi_value(value, separator: str):
-    """
-    Parses a string that can either be a simple separated list or a JSON array string.
-    """
-    if pd.isna(value):
-        return None
-    s_value = str(value).strip()
-    if s_value.startswith('[') and s_value.endswith(']'):
-        try:
-            return json.loads(s_value)
-        except json.JSONDecodeError:
-            return []
-    return [item.strip() for item in s_value.split(separator) if item.strip()]
-
 def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/many_to_many_relations.csv"):
     """
     Creates many-to-many relations with case-insensitive and whitespace-insensitive joins.
     Handles single or multiple dynamic separators for splitting values.
     """
+
     MULTI_COLUMN_SEPARATOR = '-'
+
     try:
         relations_df = pd.read_csv(csv_path)
     except Exception as e:
@@ -299,35 +112,51 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
 
     engine = create_engine(target_db_url)
 
-    # --- HELPER FOR CLEANING PANDAS STRINGS ---
+    # --- Helper to normalize strings ---
     def pd_clean_string(series: pd.Series) -> pd.Series:
-        """Replaces all whitespace types with a single space, then strips and lowercases."""
         return series.astype(str).str.replace(r'[\s\xa0]+', ' ', regex=True).str.strip().str.lower()
+
+    # --- Smart Split: comma-aware splitter ---
+    def smart_split(text: str, sep=',') -> list:
+        parts = []
+        current = []
+        open_parens = 0
+        for char in text:
+            if char == '(':
+                open_parens += 1
+            elif char == ')':
+                open_parens = max(open_parens - 1, 0)
+            if char == sep and open_parens == 0:
+                parts.append(''.join(current).strip())
+                current = []
+            else:
+                current.append(char)
+        if current:
+            parts.append(''.join(current).strip())
+        return parts
 
     for _, row in relations_df.iterrows():
         source_table, source_id_col = row["source_table"], row["source_id_column"]
         lookup_table, lookup_id_col = row["lookup_table"], row["lookup_id_column"]
         assoc_table, assoc_source_col, assoc_lookup_col = row["associative_table"], row["assoc_source_column"], row["assoc_lookup_column"]
-        
-        # ### START OF MODIFICATION ###
+
         separator_config = row["seperator"]
         source_multi_cols = [c.strip() for c in row["source_multi_column"].split(MULTI_COLUMN_SEPARATOR)]
         lookup_name_cols = [c.strip() for c in row["lookup_name_column"].split(MULTI_COLUMN_SEPARATOR)]
-        
-        # --- 1. Parse the new separator logic ---
+
+        # --- 1. Parse separator logic ---
         split_pattern = None
-        # Check if separator_config is a non-empty string
+        use_smart_split = False
+
         if isinstance(separator_config, str) and separator_config.strip():
-            # Check for multiple separators format, e.g., '(/ ;)'
             if separator_config.startswith('(') and separator_config.endswith(')'):
                 separators = separator_config.strip('()').split()
                 if separators:
-                    # Create a regex pattern like '\/|;' to split by any separator
-                    split_pattern = '|'.join(map(re.escape, separators))
+                    split_pattern = '|'.join(map(re.escape, separators))  # regex split
             else:
-                # Handle as a single separator
-                split_pattern = re.escape(separator_config)
-        # ### END OF MODIFICATION ###
+                split_pattern = separator_config
+                if separator_config == ',':
+                    use_smart_split = True  # Special case: use smart splitter
 
         if len(source_multi_cols) != len(lookup_name_cols):
             logger.error(f"Mismatched number of lookup columns for associative table '{assoc_table}'. Skipping.")
@@ -340,8 +169,6 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
         try:
             logger.debug(f"Processing relation for {full_assoc_name} with composite keys...")
 
-            # --- Caching lookup table ---
-            logger.debug(f"Caching lookup table: {full_lookup_name}...")
             quoted_lookup_cols = [f'"{c}"' for c in lookup_name_cols]
             lookup_sql = f'SELECT "{lookup_id_col}", {", ".join(quoted_lookup_cols)} FROM {full_lookup_name}'
             lookup_df = pd.read_sql(lookup_sql, engine)
@@ -351,45 +178,38 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
 
             multi_index = pd.MultiIndex.from_frame(lookup_df[lookup_name_cols])
             lookup_dict = pd.Series(lookup_df[lookup_id_col].values, index=multi_index).to_dict()
-            logger.debug(f"Cached {len(lookup_dict)} lookup values using {len(lookup_name_cols)}-part composite key.")
 
-            # --- Recreate target table ---
             with engine.begin() as conn:
-                logger.debug(f"Recreating empty target table: {full_assoc_name}")
                 conn.execute(text(f'DROP TABLE IF EXISTS {full_assoc_name};'))
                 create_sql = f'CREATE TABLE {full_assoc_name} ("{assoc_source_col}" INT, "{assoc_lookup_col}" INT);'
                 conn.execute(text(create_sql))
 
-            # --- Streaming and Processing Source Table ---
             quoted_source_multi_cols = [f'"{c}"' for c in source_multi_cols]
             cols_to_select = [f'"{source_id_col}"'] + quoted_source_multi_cols
             where_clause = " AND ".join([f'{c} IS NOT NULL' for c in quoted_source_multi_cols])
             source_sql = f'SELECT {", ".join(cols_to_select)} FROM {full_source_name} WHERE {where_clause}'
 
             logger.debug(f"Streaming source table {full_source_name} in chunks of {PROCESSING_CHUNK_SIZE}...")
+
             total_unmatched_count = 0
             unmatched_samples = set()
             MAX_SAMPLES_TO_LOG = 10
 
             column_to_explode = source_multi_cols[-1]
             linking_columns = source_multi_cols[:-1]
-            logger.debug(f"Will explode column '{column_to_explode}' and link with {linking_columns}.")
 
             for source_chunk_df in pd.read_sql(source_sql, engine, chunksize=PROCESSING_CHUNK_SIZE):
                 source_chunk_df.dropna(subset=[column_to_explode], inplace=True)
                 if source_chunk_df.empty:
                     continue
 
-                # ### START OF MODIFICATION ###
-                # --- 2. Use the regex pattern to split and explode the column ---
-                if split_pattern:
-                    # Use pandas' vectorized str.split with the regex pattern
+                # --- Apply smart split or regex split ---
+                if use_smart_split:
+                    source_chunk_df[column_to_explode] = source_chunk_df[column_to_explode].apply(smart_split)
+                elif split_pattern:
                     source_chunk_df[column_to_explode] = source_chunk_df[column_to_explode].astype(str).str.split(split_pattern)
-                    exploded_df = source_chunk_df.explode(column_to_explode)
-                else:
-                    # If no separator is defined, treat the value as a single item
-                    exploded_df = source_chunk_df
-                # ### END OF MODIFICATION ###
+
+                exploded_df = source_chunk_df.explode(column_to_explode)
 
                 exploded_df.dropna(subset=source_multi_cols, inplace=True)
                 if exploded_df.empty:
@@ -428,12 +248,9 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                 if unmatched_samples:
                     logger.debug(f"Sample of distinct unmatched source values (up to {MAX_SAMPLES_TO_LOG}):")
                     for sample in list(unmatched_samples)[:MAX_SAMPLES_TO_LOG]:
-                         logger.debug(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
+                        logger.debug(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
 
-            # --- Finalizing Table ---
-            logger.debug(f"Finalizing table {full_assoc_name}...")
             with engine.begin() as conn:
-                # This section for creating keys and constraints remains the same
                 temp_table_name = f"#{assoc_table}_temp_distinct"
                 conn.execute(text(f"SELECT DISTINCT * INTO {temp_table_name} FROM {full_assoc_name};"))
                 conn.execute(text(f"TRUNCATE TABLE {full_assoc_name};"))

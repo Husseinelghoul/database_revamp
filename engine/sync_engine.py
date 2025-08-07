@@ -7,8 +7,6 @@ from db.custom_operations import (
     create_lookup_project_to_project_phase_category,
     implement_predecessor_successor, link_project_management_to_sources)
 from db.data_integrity import (add_primary_keys,
-                               create_many_to_many_for_project_phase,
-                               create_one_to_many_for_project_phase,
                                implement_many_to_many_relations,
                                implement_one_to_many_relations)
 from db.data_migrator import migrate_data
