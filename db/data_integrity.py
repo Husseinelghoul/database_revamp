@@ -287,6 +287,7 @@ def _parse_multi_value(value, separator: str):
 def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/many_to_many_relations.csv"):
     """
     Creates many-to-many relations with case-insensitive and whitespace-insensitive joins.
+    Handles single or multiple dynamic separators for splitting values.
     """
     MULTI_COLUMN_SEPARATOR = '-'
     try:
@@ -300,16 +301,32 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
     # --- HELPER FOR CLEANING PANDAS STRINGS ---
     def pd_clean_string(series: pd.Series) -> pd.Series:
         """Replaces all whitespace types with a single space, then strips and lowercases."""
-        # The regex r'[\s\xa0]+' matches one or more of any whitespace char OR a non-breaking space.
         return series.astype(str).str.replace(r'[\s\xa0]+', ' ', regex=True).str.strip().str.lower()
 
     for _, row in relations_df.iterrows():
         source_table, source_id_col = row["source_table"], row["source_id_column"]
         lookup_table, lookup_id_col = row["lookup_table"], row["lookup_id_column"]
         assoc_table, assoc_source_col, assoc_lookup_col = row["associative_table"], row["assoc_source_column"], row["assoc_lookup_column"]
-        separator = row["seperator"]
+        
+        # ### START OF MODIFICATION ###
+        separator_config = row["seperator"]
         source_multi_cols = [c.strip() for c in row["source_multi_column"].split(MULTI_COLUMN_SEPARATOR)]
         lookup_name_cols = [c.strip() for c in row["lookup_name_column"].split(MULTI_COLUMN_SEPARATOR)]
+        
+        # --- 1. Parse the new separator logic ---
+        split_pattern = None
+        # Check if separator_config is a non-empty string
+        if isinstance(separator_config, str) and separator_config.strip():
+            # Check for multiple separators format, e.g., '(/ ;)'
+            if separator_config.startswith('(') and separator_config.endswith(')'):
+                separators = separator_config.strip('()').split()
+                if separators:
+                    # Create a regex pattern like '\/|;' to split by any separator
+                    split_pattern = '|'.join(map(re.escape, separators))
+            else:
+                # Handle as a single separator
+                split_pattern = re.escape(separator_config)
+        # ### END OF MODIFICATION ###
 
         if len(source_multi_cols) != len(lookup_name_cols):
             logger.error(f"Mismatched number of lookup columns for associative table '{assoc_table}'. Skipping.")
@@ -328,7 +345,6 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             lookup_sql = f'SELECT "{lookup_id_col}", {", ".join(quoted_lookup_cols)} FROM {full_lookup_name}'
             lookup_df = pd.read_sql(lookup_sql, engine)
 
-            # UPDATED: Clean lookup keys to be lowercase and stripped of all whitespace types
             for col in lookup_name_cols:
                 lookup_df[col] = pd_clean_string(lookup_df[col])
 
@@ -359,15 +375,25 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             logger.debug(f"Will explode column '{column_to_explode}' and link with {linking_columns}.")
 
             for source_chunk_df in pd.read_sql(source_sql, engine, chunksize=PROCESSING_CHUNK_SIZE):
-                source_chunk_df[column_to_explode] = source_chunk_df[column_to_explode].apply(_parse_multi_value, separator=separator)
                 source_chunk_df.dropna(subset=[column_to_explode], inplace=True)
-                exploded_df = source_chunk_df.explode(column_to_explode)
-                exploded_df.dropna(subset=source_multi_cols, inplace=True)
+                if source_chunk_df.empty:
+                    continue
 
+                # ### START OF MODIFICATION ###
+                # --- 2. Use the regex pattern to split and explode the column ---
+                if split_pattern:
+                    # Use pandas' vectorized str.split with the regex pattern
+                    source_chunk_df[column_to_explode] = source_chunk_df[column_to_explode].astype(str).str.split(split_pattern)
+                    exploded_df = source_chunk_df.explode(column_to_explode)
+                else:
+                    # If no separator is defined, treat the value as a single item
+                    exploded_df = source_chunk_df
+                # ### END OF MODIFICATION ###
+
+                exploded_df.dropna(subset=source_multi_cols, inplace=True)
                 if exploded_df.empty:
                     continue
 
-                # UPDATED: Clean source keys to be lowercase and stripped of all whitespace types
                 for col in source_multi_cols:
                     exploded_df[col] = pd_clean_string(exploded_df[col])
 
@@ -406,6 +432,7 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
             # --- Finalizing Table ---
             logger.debug(f"Finalizing table {full_assoc_name}...")
             with engine.begin() as conn:
+                # This section for creating keys and constraints remains the same
                 temp_table_name = f"#{assoc_table}_temp_distinct"
                 conn.execute(text(f"SELECT DISTINCT * INTO {temp_table_name} FROM {full_assoc_name};"))
                 conn.execute(text(f"TRUNCATE TABLE {full_assoc_name};"))
@@ -426,6 +453,7 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
 
         except Exception as e:
             logger.exception(f"An error occurred while processing the relation for {source_table}")
+
 def implement_one_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/one_to_many_relations.csv"):
     """
     Implements one-to-many relations with case-insensitive and whitespace-insensitive joins.
