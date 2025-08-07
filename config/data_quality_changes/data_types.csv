@@ -33,7 +33,6 @@ project_kpi,is_executive_kpi,varchar,bit
 project_management,time_elapsed_percentage,varchar,float
 project_management,spi,varchar,float
 project_management,project_management_var,varchar,int
-project_management,forecast_completion_last_period,varchar,int
 project_management,delay_this_period,varchar,int
 project_management,cumulative_delay,varchar,int
 project_management,manpower_planned,varchar,int
@@ -148,7 +147,7 @@ lookup_project_to_phase,period,nvarchar,date
 potential_budget_uplift_scope,period,varchar,date
 entity_key_achievements,period,varchar,date
 media_path,period,varchar,date
-key_achievements,start_date,nvarchar,date
 project_summary,last_updated,varchar,datetime
 project_summary,is_subject_to_rebaseline,varchar,bit
 project_summary,is_external_lookup_for_health_and_safety,varchar,bit
+potential_budget_uplift_scope,cost_impact,varchar,float
