@@ -4,7 +4,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from utils.logger import setup_logger
-from utils.utils import clean_column_for_datetime_conversion
 
 logger = setup_logger()
 
