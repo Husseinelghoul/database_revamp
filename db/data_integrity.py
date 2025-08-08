@@ -92,46 +92,116 @@ def add_primary_keys(target_db_url, schema_name):
             except SQLAlchemyError:
                 logger.exception(f"FAILED to set primary key for {full_table_name}. Skipping this table.")
 
-def replace_design_manager_separators(target_db_url: str, schema_name: str):
+def correct_and_update_design_managers(
+    target_db_url: str,
+    schema_name: str,
+    primary_key_column: str = "id"
+):
     """
-    Connects to a database and replaces all forward slashes ('/') with semicolons (';')
-    in the 'design_manager' column of the 'project_status' table.
+    Connects to a database to clean the 'design_manager' column in the 'project_status' table.
+    
+    This function performs the following actions:
+    1. Replaces all forward slashes ('/') with semicolons (';').
+    2. Reads a master list of correct names from 'config/master_table_values/design_manager_correct_names.csv'.
+    3. For each name in the 'design_manager' column, it checks against the 'wrong_name' column in the CSV.
+    4. If a match is found (case-insensitive), it replaces it with the corresponding 'correct_name'.
+    5. Updates the database rows only where changes have been made.
 
     Args:
         target_db_url: The database connection URL (e.g., "postgresql://user:password@host/dbname").
         schema_name: The name of the schema containing the 'project_status' table.
+        primary_key_column: The name of the primary key column in 'project_status' (e.g., "id", "project_id").
+                           This is essential for correctly identifying rows to update.
     """
+    # --- 1. Load the Name Correction Map from CSV ---
+    logger.info('Running necessary fixes on project_status.design_manager')
     try:
-        # --- 1. Establish database connection ---
-        # The engine manages connections to the database.
+        csv_path = Path("config/master_table_values/design_manager_correct_names.csv")
+        logger.debug(f"Loading name correction map from: {csv_path}")
+        df_correct_names = pd.read_csv(csv_path)
+
+        # Create a dictionary for fast lookups: { 'lowercase_wrong_name': 'Correct Name' }
+        # We strip whitespace to ensure clean matching.
+        correction_map = {
+            str(row['wrong_name']).strip().lower(): str(row['correct_name']).strip()
+            for _, row in df_correct_names.iterrows()
+        }
+        logger.debug(f"Successfully loaded {len(correction_map)} name corrections.")
+
+    except FileNotFoundError:
+        logger.error(f"Critical Error: The correction file was not found at {csv_path}")
+        raise
+    except Exception as e:
+        logger.error(f"An error occurred while reading the CSV file: {e}")
+        raise
+
+    try:
+        # --- 2. Establish database connection and fetch data ---
         engine = create_engine(target_db_url)
-        logger.info(f"Successfully connected to the database.")
+        
+        updates_to_perform = []
 
-        # --- 2. Define the SQL UPDATE statement ---
-        # This query targets the specified table and column, using the REPLACE
-        # function to swap the characters. Using :schema_name as a parameter
-        # isn't standard for table/schema identifiers, so we format it directly
-        # into the string, ensuring the schema name is properly quoted.
-        update_query = text(f"""
-            UPDATE "{schema_name}"."project_status"
-            SET "design_manager" = REPLACE("design_manager", '/', ';')
-            WHERE "design_manager" LIKE '%/%';
-        """)
-
-        # --- 3. Execute the query within a transaction ---
-        # The 'with engine.begin() as conn:' block ensures that the operation
-        # is transactional. If any part fails, the changes are rolled back.
         with engine.begin() as conn:
-            logger.info(f"Executing update on \"{schema_name}\".\"project_status\"...")
-            result = conn.execute(update_query)
+            # Fetch all rows from the table to process them in Python
+            select_query = text(f"""
+                SELECT "{primary_key_column}", "design_manager"
+                FROM "{schema_name}"."project_status"
+                WHERE "design_manager" IS NOT NULL AND "design_manager" != '';
+            """)
+            logger.debug(f"Fetching data from \"{schema_name}\".\"project_status\"...")
+            result = conn.execute(select_query)
+            rows_to_process = result.fetchall()
+            logger.debug(f"Found {len(rows_to_process)} rows to process.")
+
+            # --- 3. Process each row to find necessary corrections ---
+            for row in rows_to_process:
+                pk_value, original_dm_string = row
+                
+                # First, standardize separators
+                dm_with_semicolons = original_dm_string.replace('/', ';')
+
+                # Split into individual names, stripping whitespace from each
+                original_names = [name.strip() for name in dm_with_semicolons.split(';') if name.strip()]
+
+                # Correct each name using the map
+                corrected_names = []
+                for name in original_names:
+                    # Look up the lowercased, stripped name in our map
+                    # If not found, use the original name as the default
+                    corrected_name = correction_map.get(name.lower(), name)
+                    corrected_names.append(corrected_name)
+                
+                # Re-join the names to form the final, corrected string
+                final_dm_string = ";".join(corrected_names)
+                
+                # If the final string is different, stage it for update
+                if final_dm_string != original_dm_string:
+                    updates_to_perform.append({
+                        'pk_param': pk_value,
+                        'new_dm_value': final_dm_string
+                    })
+
+            # --- 4. Execute a single bulk update for all changed rows ---
+            if not updates_to_perform:
+                logger.debug("No design manager names required correction. Database is already up to date.")
+                return
+
+            logger.debug(f"Found {len(updates_to_perform)} rows that need updating. Executing bulk update...")
             
-            # The 'rowcount' attribute gives the number of rows affected by the UPDATE.
-            logger.info(f"Operation complete. {result.rowcount} row(s) were updated.")
+            update_query = text(f"""
+                UPDATE "{schema_name}"."project_status"
+                SET "design_manager" = :new_dm_value
+                WHERE "{primary_key_column}" = :pk_param;
+            """)
+            
+            # SQLAlchemy can execute the same statement with a list of parameter sets
+            conn.execute(update_query, updates_to_perform)
+            
+            logger.debug(f"Operation complete. {len(updates_to_perform)} row(s) were successfully updated.")
 
     except Exception as e:
-        # --- 4. Handle potential errors ---
-        logger.error(f"An error occurred: {e}")
-        raise e
+        logger.error(f"An error occurred during the database operation: {e}")
+        raise
 
 # Define constants if not globally available
 PROCESSING_CHUNK_SIZE = 10000
@@ -154,7 +224,7 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
     """
     Creates many-to-many relations with case-insensitive and whitespace-insensitive joins.
     """
-    replace_design_manager_separators(target_db_url, schema_name)
+    correct_and_update_design_managers(target_db_url, schema_name)
     MULTI_COLUMN_SEPARATOR = '-'
     try:
         relations_df = pd.read_csv(csv_path)
