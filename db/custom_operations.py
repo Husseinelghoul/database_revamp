@@ -370,3 +370,106 @@ def create_lookup_project_to_project_phase_category(target_db_url: str,schema_na
         # Optionally re-raise the exception if you want the script to stop
         raise e
 
+def merge_project_status_columns(target_db_url, schema_name):
+    """
+    Merges and standardizes project status data into four new columns within
+    the project_status table.
+
+    This function performs two main operations:
+    1.  Ensures the target table `"{schema_name}"."project_status"` contains four
+        new columns:
+        - baseline_plan_finish_date (DATE)
+        - forecast_finish_date (DATE)
+        - planned_progress_percentage (FLOAT)
+        - actual_progress_percentage (FLOAT)
+
+    2.  Populates these new columns based on the value of the `stage_status`
+        column, consolidating data from different fields into a
+        standardized format.
+    """
+    engine = create_engine(target_db_url)
+    full_ps_table = f'"{schema_name}"."project_status"'
+
+    try:
+        # Step 1: Ensure the new columns exist in the project_status table.
+        # This is done idempotently, so it's safe to run multiple times.
+        with engine.begin() as conn:
+            logger.debug(f"Ensuring required columns exist in {full_ps_table}...")
+
+            # Add baseline_plan_finish_date if it doesn't exist
+            conn.execute(text(f"""
+                IF COL_LENGTH('{schema_name}.project_status', 'baseline_plan_finish_date') IS NULL
+                BEGIN
+                    ALTER TABLE {full_ps_table} ADD baseline_plan_finish_date DATE NULL;
+                    PRINT 'Column baseline_plan_finish_date added.';
+                END
+            """))
+
+            # Add forecast_finish_date if it doesn't exist
+            conn.execute(text(f"""
+                IF COL_LENGTH('{schema_name}.project_status', 'forecast_finish_date') IS NULL
+                BEGIN
+                    ALTER TABLE {full_ps_table} ADD forecast_finish_date DATE NULL;
+                    PRINT 'Column forecast_finish_date added.';
+                END
+            """))
+
+            # Add planned_progress_percentage if it doesn't exist
+            conn.execute(text(f"""
+                IF COL_LENGTH('{schema_name}.project_status', 'planned_progress_percentage') IS NULL
+                BEGIN
+                    ALTER TABLE {full_ps_table} ADD planned_progress_percentage FLOAT NULL;
+                    PRINT 'Column planned_progress_percentage added.';
+                END
+            """))
+
+            # Add actual_progress_percentage if it doesn't exist
+            conn.execute(text(f"""
+                IF COL_LENGTH('{schema_name}.project_status', 'actual_progress_percentage') IS NULL
+                BEGIN
+                    ALTER TABLE {full_ps_table} ADD actual_progress_percentage FLOAT NULL;
+                    PRINT 'Column actual_progress_percentage added.';
+                END
+            """))
+            
+            logger.debug("Column existence check complete.")
+
+        # Step 2: Update the new columns using a single, efficient SQL statement
+        # with CASE expressions to handle the conditional logic.
+        with engine.begin() as conn:
+            logger.debug(f"Updating merged columns in {full_ps_table}...")
+
+            update_sql = text(f"""
+                UPDATE {full_ps_table}
+                SET
+                    baseline_plan_finish_date = CASE
+                        WHEN stage_status IN ('Initiation', 'Design', 'LDC Procurement') THEN baseline_plan_finish
+                        WHEN stage_status IN ('Contractor Procurement', 'Construction', 'DLP and Project Closeout') THEN plan_end_date
+                        ELSE NULL
+                    END,
+                    forecast_finish_date = CASE
+                        WHEN stage_status IN ('Initiation', 'Design', 'LDC Procurement') THEN forecast_finish
+                        WHEN stage_status IN ('Contractor Procurement', 'Construction', 'DLP and Project Closeout') THEN forecasted_end_date
+                        ELSE NULL
+                    END,
+                    planned_progress_percentage = CASE
+                        WHEN stage_status IN ('Initiation', 'Design', 'LDC Procurement') THEN rev_plan_percentage
+                        WHEN stage_status IN ('Contractor Procurement', 'Construction', 'DLP and Project Closeout') THEN revised_plan_percentage
+                        ELSE NULL
+                    END,
+                    actual_progress_percentage = CASE
+                        WHEN stage_status IN ('Initiation', 'Design', 'LDC Procurement') THEN actual_percentage
+                        WHEN stage_status IN ('Contractor Procurement', 'Construction', 'DLP and Project Closeout') THEN actual_plan_percentage
+                        ELSE NULL
+                    END;
+            """)
+            
+            result = conn.execute(update_sql)
+            logger.debug(f"Updated {result.rowcount} rows in {full_ps_table}.")
+
+        logger.debug("Project status column merge process completed successfully.")
+
+    except Exception as e:
+        logger.error(f"A critical error occurred during the column merge process: {e}", exc_info=True)
+        # Re-raise the exception to allow the calling code to handle it
+        raise

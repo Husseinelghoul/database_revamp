@@ -85,3 +85,11 @@ authority_approvals_tracking,phase
 key_achievements,phase
 project_status,phase
 project_management,phase
+project_status,baseline_plan_finish
+project_status,plan_end_date
+project_status,forecast_finish
+project_status,forecasted_end_date
+project_status,rev_plan_percentage
+project_status,revised_plan_percentage
+project_status,actual_percentage
+project_status,actual_plan_percentage
