@@ -1,5 +1,4 @@
 import json
-import re
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -94,16 +93,70 @@ def add_primary_keys(target_db_url, schema_name):
             except SQLAlchemyError:
                 logger.exception(f"FAILED to set primary key for {full_table_name}. Skipping this table.")
 
+def replace_design_manager_separators(target_db_url: str, schema_name: str):
+    """
+    Connects to a database and replaces all forward slashes ('/') with semicolons (';')
+    in the 'design_manager' column of the 'project_status' table.
+
+    Args:
+        target_db_url: The database connection URL (e.g., "postgresql://user:password@host/dbname").
+        schema_name: The name of the schema containing the 'project_status' table.
+    """
+    try:
+        # --- 1. Establish database connection ---
+        # The engine manages connections to the database.
+        engine = create_engine(target_db_url)
+        logger.info(f"Successfully connected to the database.")
+
+        # --- 2. Define the SQL UPDATE statement ---
+        # This query targets the specified table and column, using the REPLACE
+        # function to swap the characters. Using :schema_name as a parameter
+        # isn't standard for table/schema identifiers, so we format it directly
+        # into the string, ensuring the schema name is properly quoted.
+        update_query = text(f"""
+            UPDATE "{schema_name}"."project_status"
+            SET "design_manager" = REPLACE("design_manager", '/', ';')
+            WHERE "design_manager" LIKE '%/%';
+        """)
+
+        # --- 3. Execute the query within a transaction ---
+        # The 'with engine.begin() as conn:' block ensures that the operation
+        # is transactional. If any part fails, the changes are rolled back.
+        with engine.begin() as conn:
+            logger.info(f"Executing update on \"{schema_name}\".\"project_status\"...")
+            result = conn.execute(update_query)
+            
+            # The 'rowcount' attribute gives the number of rows affected by the UPDATE.
+            logger.info(f"Operation complete. {result.rowcount} row(s) were updated.")
+
+    except Exception as e:
+        # --- 4. Handle potential errors ---
+        logger.error(f"An error occurred: {e}")
+        raise e
+
 # Define constants if not globally available
 PROCESSING_CHUNK_SIZE = 10000
+
+def _parse_multi_value(value, separator: str):
+    """
+    Parses a string that can either be a simple separated list or a JSON array string.
+    """
+    if pd.isna(value):
+        return None
+    s_value = str(value).strip()
+    if s_value.startswith('[') and s_value.endswith(']'):
+        try:
+            return json.loads(s_value)
+        except json.JSONDecodeError:
+            return []
+    return [item.strip() for item in s_value.split(separator) if item.strip()]
+
 def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_path: str = "config/data_integrity_changes/many_to_many_relations.csv"):
     """
     Creates many-to-many relations with case-insensitive and whitespace-insensitive joins.
-    Handles single or multiple dynamic separators for splitting values.
     """
-
+    replace_design_manager_separators(target_db_url, schema_name)
     MULTI_COLUMN_SEPARATOR = '-'
-
     try:
         relations_df = pd.read_csv(csv_path)
     except Exception as e:
@@ -112,51 +165,19 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
 
     engine = create_engine(target_db_url)
 
-    # --- Helper to normalize strings ---
+    # --- HELPER FOR CLEANING PANDAS STRINGS ---
     def pd_clean_string(series: pd.Series) -> pd.Series:
+        """Replaces all whitespace types with a single space, then strips and lowercases."""
+        # The regex r'[\s\xa0]+' matches one or more of any whitespace char OR a non-breaking space.
         return series.astype(str).str.replace(r'[\s\xa0]+', ' ', regex=True).str.strip().str.lower()
-
-    # --- Smart Split: comma-aware splitter ---
-    def smart_split(text: str, sep=',') -> list:
-        parts = []
-        current = []
-        open_parens = 0
-        for char in text:
-            if char == '(':
-                open_parens += 1
-            elif char == ')':
-                open_parens = max(open_parens - 1, 0)
-            if char == sep and open_parens == 0:
-                parts.append(''.join(current).strip())
-                current = []
-            else:
-                current.append(char)
-        if current:
-            parts.append(''.join(current).strip())
-        return parts
 
     for _, row in relations_df.iterrows():
         source_table, source_id_col = row["source_table"], row["source_id_column"]
         lookup_table, lookup_id_col = row["lookup_table"], row["lookup_id_column"]
         assoc_table, assoc_source_col, assoc_lookup_col = row["associative_table"], row["assoc_source_column"], row["assoc_lookup_column"]
-
-        separator_config = row["seperator"]
+        separator = row["seperator"]
         source_multi_cols = [c.strip() for c in row["source_multi_column"].split(MULTI_COLUMN_SEPARATOR)]
         lookup_name_cols = [c.strip() for c in row["lookup_name_column"].split(MULTI_COLUMN_SEPARATOR)]
-
-        # --- 1. Parse separator logic ---
-        split_pattern = None
-        use_smart_split = False
-
-        if isinstance(separator_config, str) and separator_config.strip():
-            if separator_config.startswith('(') and separator_config.endswith(')'):
-                separators = separator_config.strip('()').split()
-                if separators:
-                    split_pattern = '|'.join(map(re.escape, separators))  # regex split
-            else:
-                split_pattern = separator_config
-                if separator_config == ',':
-                    use_smart_split = True  # Special case: use smart splitter
 
         if len(source_multi_cols) != len(lookup_name_cols):
             logger.error(f"Mismatched number of lookup columns for associative table '{assoc_table}'. Skipping.")
@@ -169,52 +190,52 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
         try:
             logger.debug(f"Processing relation for {full_assoc_name} with composite keys...")
 
+            # --- Caching lookup table ---
+            logger.debug(f"Caching lookup table: {full_lookup_name}...")
             quoted_lookup_cols = [f'"{c}"' for c in lookup_name_cols]
             lookup_sql = f'SELECT "{lookup_id_col}", {", ".join(quoted_lookup_cols)} FROM {full_lookup_name}'
             lookup_df = pd.read_sql(lookup_sql, engine)
 
+            # UPDATED: Clean lookup keys to be lowercase and stripped of all whitespace types
             for col in lookup_name_cols:
                 lookup_df[col] = pd_clean_string(lookup_df[col])
 
             multi_index = pd.MultiIndex.from_frame(lookup_df[lookup_name_cols])
             lookup_dict = pd.Series(lookup_df[lookup_id_col].values, index=multi_index).to_dict()
+            logger.debug(f"Cached {len(lookup_dict)} lookup values using {len(lookup_name_cols)}-part composite key.")
 
+            # --- Recreate target table ---
             with engine.begin() as conn:
+                logger.debug(f"Recreating empty target table: {full_assoc_name}")
                 conn.execute(text(f'DROP TABLE IF EXISTS {full_assoc_name};'))
                 create_sql = f'CREATE TABLE {full_assoc_name} ("{assoc_source_col}" INT, "{assoc_lookup_col}" INT);'
                 conn.execute(text(create_sql))
 
+            # --- Streaming and Processing Source Table ---
             quoted_source_multi_cols = [f'"{c}"' for c in source_multi_cols]
             cols_to_select = [f'"{source_id_col}"'] + quoted_source_multi_cols
             where_clause = " AND ".join([f'{c} IS NOT NULL' for c in quoted_source_multi_cols])
             source_sql = f'SELECT {", ".join(cols_to_select)} FROM {full_source_name} WHERE {where_clause}'
 
             logger.debug(f"Streaming source table {full_source_name} in chunks of {PROCESSING_CHUNK_SIZE}...")
-
             total_unmatched_count = 0
             unmatched_samples = set()
             MAX_SAMPLES_TO_LOG = 10
 
             column_to_explode = source_multi_cols[-1]
             linking_columns = source_multi_cols[:-1]
+            logger.debug(f"Will explode column '{column_to_explode}' and link with {linking_columns}.")
 
             for source_chunk_df in pd.read_sql(source_sql, engine, chunksize=PROCESSING_CHUNK_SIZE):
+                source_chunk_df[column_to_explode] = source_chunk_df[column_to_explode].apply(_parse_multi_value, separator=separator)
                 source_chunk_df.dropna(subset=[column_to_explode], inplace=True)
-                if source_chunk_df.empty:
-                    continue
-
-                # --- Apply smart split or regex split ---
-                if use_smart_split:
-                    source_chunk_df[column_to_explode] = source_chunk_df[column_to_explode].apply(smart_split)
-                elif split_pattern:
-                    source_chunk_df[column_to_explode] = source_chunk_df[column_to_explode].astype(str).str.split(split_pattern)
-
                 exploded_df = source_chunk_df.explode(column_to_explode)
-
                 exploded_df.dropna(subset=source_multi_cols, inplace=True)
+
                 if exploded_df.empty:
                     continue
 
+                # UPDATED: Clean source keys to be lowercase and stripped of all whitespace types
                 for col in source_multi_cols:
                     exploded_df[col] = pd_clean_string(exploded_df[col])
 
@@ -248,8 +269,10 @@ def implement_many_to_many_relations(target_db_url: str, schema_name: str, csv_p
                 if unmatched_samples:
                     logger.debug(f"Sample of distinct unmatched source values (up to {MAX_SAMPLES_TO_LOG}):")
                     for sample in list(unmatched_samples)[:MAX_SAMPLES_TO_LOG]:
-                        logger.debug(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
+                         logger.debug(f"  - [{MULTI_COLUMN_SEPARATOR.join(map(str, sample))}]")
 
+            # --- Finalizing Table ---
+            logger.debug(f"Finalizing table {full_assoc_name}...")
             with engine.begin() as conn:
                 temp_table_name = f"#{assoc_table}_temp_distinct"
                 conn.execute(text(f"SELECT DISTINCT * INTO {temp_table_name} FROM {full_assoc_name};"))
