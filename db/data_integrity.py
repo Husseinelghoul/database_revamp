@@ -5,7 +5,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from config.constants import PROCESSING_CHUNK_SIZE
 from utils.logger import setup_logger
-from utils.utils import generate_constraint_name
 
 logger = setup_logger()
 

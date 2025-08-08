@@ -1,7 +1,4 @@
-import hashlib
-
 import pandas as pd
-from sqlalchemy import text
 
 from utils.logger import setup_logger
 
