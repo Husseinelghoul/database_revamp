@@ -51,7 +51,7 @@ project_summary,delivery_project_manager_avatar
 project_summary,design_project_owner_avatar
 key_achievements,stage_status
 key_achievements,sub_stage
-project_milestone,milestone_number
+project_milestones,milestone_number
 key_risks,stage_status
 key_risks,sub_stage
 project_summary,procurement_manager
@@ -69,7 +69,7 @@ project_summary,project_management_files
 project_management,sub_stage
 project_management,stage_status
 feedback,feedback_attachments
-project_milestone,letter_reference_attachment
+project_milestones,letter_reference_attachment
 project_status,pte_attachment
 project_status,forecast_completion_last_week
 project_status,actual_progress_percentage_of_last_week
@@ -79,7 +79,7 @@ contract_vo_status,master_contractor
 contract_vo_status,master_consultant
 contract_vo_status,master_pmc
 contract_vo_status,phase
-project_milestone,phase
+project_milestones,phase
 key_risks,phase
 authority_approvals_tracking,phase
 key_achievements,phase

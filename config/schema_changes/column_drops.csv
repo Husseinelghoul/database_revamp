@@ -51,9 +51,9 @@ insights,entity_key_achievements,start_date
 insights,project_summary,sub_owning_entity
 insights,Master_SVP,new_id
 insights,project_management,project_management_var
-insights,project_milestone,key_risk_sorting_order
+insights,project_milestones,key_risk_sorting_order
 pulse,project_management,project_management_var
-pulse,project_milestone,key_risk_sorting_order
+pulse,project_milestones,key_risk_sorting_order
 insights,project_management,cost_per_sqm
 pulse,project_management,cost_per_sqm
 insights,project_management,forecast_completion_last_week

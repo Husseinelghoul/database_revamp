@@ -97,7 +97,7 @@ def populate_master_roles_for_contract_vo_status(target_db_url, schema_name):
 def merge_milestone_status(target_db_url: str, schema_name: str):
     """
     Consolidates the 'status' column into the 'milestone_status' column for
-    the 'project_milestone' table.
+    the 'project_milestones' table.
 
     Connects to the specified database and performs two actions within a
     single transaction:
@@ -111,7 +111,7 @@ def merge_milestone_status(target_db_url: str, schema_name: str):
         target_db_url (str): The connection string for the target MSSQL database.
         schema_name (str): The name of the database schema to operate on.
     """
-    table_name = 'project_milestone'
+    table_name = 'project_milestones'
     primary_status_col = 'milestone_status'
     secondary_status_col = 'status'
 

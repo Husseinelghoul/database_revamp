@@ -37,7 +37,7 @@ Master_Sub_Location,master_sub_location
 Master_SVP,master_delivery_project_manager
 Master_Typology,master_typology
 project_stage_weightage,project_status_weightage
-SPA,project_milestone
+SPA,project_milestones
 Sessions,sessions
 Project_Summary,project_summary
 Master_Milestone_Number,master_milestone_number
