@@ -228,9 +228,10 @@ def link_project_management_to_sources(target_db_url, schema_name):
                 JOIN {full_ps_table} AS ps 
                     ON pm.project_name = ps.project_name
                     AND pm.period = ps.period
-                    AND pm.phase = ps.phase
-                    AND pm.stage_status = ps.stage_status
-                    AND pm.sub_stage = ps.sub_stage;
+                    /* Correctly handle potential NULLs in the following columns */
+                    AND (pm.phase = ps.phase OR (pm.phase IS NULL AND ps.phase IS NULL))
+                    AND (pm.stage_status = ps.stage_status OR (pm.stage_status IS NULL AND ps.stage_status IS NULL))
+                    AND (pm.sub_stage = ps.sub_stage OR (pm.sub_stage IS NULL AND ps.sub_stage IS NULL));
             """)
             status_result = conn.execute(update_status_sql)
             logger.debug(f"Linked {status_result.rowcount} rows to project_status.")
