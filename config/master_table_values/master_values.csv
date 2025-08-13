@@ -1,7 +1,7 @@
 master_contract_type,master_contractor,master_rating,master_director,master_project_stage_status,master_project_classification,master_entity_category,master_pricing_type,master_reason_for_delay,master_location
 Supervision,Genco Dubai,Low,Mohamed Bin Lajrad,Initiation,Bid-Build,Aldar Investment,Fee Based,Delay in Initiation (Requirements Gathering & RFP Preparation),KSA
 Consultancy,Genco Sharjah,Medium,Souhail ElHalawani,LDC Procurement,Design,Government,Fixed Price,Incomplete Project Transfer Information (Project Brief/Design/Tender Documentation),Dubai
-Construction,,High,,Design,Design & Build,Aldar Development,,Outstanding Project Budget Transfer,AbuDhabi
+Construction,,High,,Design,Design & Build,Aldar Development,,Outstanding Project Budget Transfer,
 ,,Closed,,Contractor Procurement,Design-Bid-Build,,,Outstanding Project Contract Novation,
 ,,,,Construction,Development Agreement,,,Change of Scope (Change to or Additional Requirements),
 ,,,,DLP and Project Closeout,,,,Incorrect Initial Project Planning/Estimation,
