@@ -93,3 +93,4 @@ project_status,rev_plan_percentage
 project_status,revised_plan_percentage
 project_status,actual_percentage
 project_status,actual_plan_percentage
+project_summary,district

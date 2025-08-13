@@ -35,3 +35,4 @@ key_risks,period-project_name-phase,lookup_project_to_phase_id,lookup_project_to
 authority_approvals_tracking,period-project_name-phase,lookup_project_to_phase_id,lookup_project_to_phase,id,period-project_name-phase
 key_achievements,period-project_name-phase,lookup_project_to_phase_id,lookup_project_to_phase,id,period-project_name-phase
 project_milestones,period-project_name-phase,lookup_project_to_phase_id,lookup_project_to_phase,id,period-project_name-phase
+project_summary,district,master_district_id,master_district,id,district
