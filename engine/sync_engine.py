@@ -136,9 +136,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info(f"Phase 7: Data Quality Changes")
         logger.info(f"Changing Data Types - 7a")
         change_data_types(target_db_url, target_schema)
-        logger.info(f"Applying Constraints - 7b")
-        # apply_data_quality_rules(target_db_url, target_schema)
-        logger.info("Applying other data quality rules - 7c")
+        logger.info("Applying other data quality rules - 7a")
         set_health_safety_default(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 7 completed in {phase_end - phase_start:.2f} seconds")
@@ -177,7 +175,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info(f"Dropping unused columns - 9d")
         drop_columns(target_db_url, target_schema, application, csv_path="config/data_integrity_changes/unused_columns.csv")
         phase_end = time.time()
-        logger.info(f"Phase 8 completed in {phase_end - phase_start:.2f} seconds")
+        logger.info(f"Phase 9 completed in {phase_end - phase_start:.2f} seconds")
 
     # Phase 10: Implementing Indexes
     if "phase10" in phases_to_skip:
@@ -188,6 +186,15 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         create_project_period_indexes(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 10 completed in {phase_end - phase_start:.2f} seconds")
+
+    # Phase 11: Data Quality Rules
+    if "phase11" in phases_to_skip:
+        logger.info("Skipping Phase 11: Data Quality Rules")
+    else:
+        phase_start = time.time()
+        apply_data_quality_rules(target_db_url, target_schema)
+        phase_end = time.time()
+        logger.info(f"Phase 11 completed in {phase_end - phase_start:.2f} seconds")
         
     end_time = time.time()
     logger.info(f"Database sync process completed in {end_time - start_time:.2f} seconds for {application}")

@@ -52,7 +52,6 @@ project_management,time_elapsed_perc,time_elapsed_percentage
 project_management,SPI,spi
 project_management,VAR,project_management_var
 project_management,delay_this_week,delay_this_period
-project_management,LTI,lti_ratio
 project_management,ID,id
 project_stage_weightage,Initiation,initiation
 project_stage_weightage,LDC Appointment,ldc_procurement

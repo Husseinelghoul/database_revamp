@@ -134,7 +134,6 @@ community_facility_brief,updated_by,varchar,varchar
 project_summary,submitted_eot_date,varchar,date
 commercial_status,construction_budget,varchar,bigint
 project_sustainability,waste_recycled_percentage,varchar,float
-project_summary,lti,varchar,bigint
 project_sustainability,reinvented_economy_percentage,varchar,float
 project_sustainability,workers_welfare_compliance_percentage,varchar,float
 commercial_status,design_budget,varchar,bigint

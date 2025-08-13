@@ -58,3 +58,7 @@ insights,project_management,cost_per_sqm
 pulse,project_management,cost_per_sqm
 insights,project_management,forecast_completion_last_week
 pulse,project_management,forecast_completion_last_week
+insights,project_summary,lti
+pulse,project_summary,lti
+insights,project_management,LTI
+pulse,project_management,LTI

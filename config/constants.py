@@ -1,6 +1,6 @@
-obcd_driver_version = 18
+obcd_driver_version = 17
 
 MIGRATION_CHUNK_SIZE = 10000
 PROCESSING_CHUNK_SIZE = 1000
 
-PHASES_TO_SKIP = []
+PHASES_TO_SKIP = [11]
