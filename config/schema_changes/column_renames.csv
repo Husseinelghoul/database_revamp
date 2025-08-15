@@ -59,7 +59,6 @@ project_stage_weightage,Design,design
 project_stage_weightage,Contractor Appointment,contractor_procurement
 project_stage_weightage,Construction,construction
 project_stage_weightage,Handover,handover
-project_stage_weightage,Overall,overall
 project_stage_weightage,ID,id
 project_status,SPA_date,spa_date
 project_status,Design_Stage_weightage,design_stage_weightage
@@ -121,3 +120,6 @@ user_entity,ID,id
 user_project,ID,id
 user_view_permission,ID,id
 key_achievments_plan,start_date,key_achievement_sorting_order
+news_feed,index,news_feed_sorting_order
+project_summary,is_insurances_received,is_insurance_received
+Master_Typology,master_typology,typology

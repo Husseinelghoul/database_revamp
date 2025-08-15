@@ -6,7 +6,7 @@ from db.create_lookup_media_tables import (create_lookup_project_to_media,
 from db.custom_operations import (
     create_lookup_project_to_project_phase_category,
     implement_predecessor_successor, link_project_management_to_sources,
-    merge_project_status_columns)
+    merge_project_status_columns, update_master_entity_full_name)
 from db.data_integrity import (add_primary_keys,
                                implement_many_to_many_relations,
                                implement_one_to_many_relations)
@@ -75,7 +75,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
                 }
             schema = filtered_schema
         migrate_data(source_db_url, target_db_url, schema, source_schema, target_schema,
-                        project_names=None, periods=None)
+                        project_names=None, periods=['2025-08-11'])
         phase_end = time.time()
         logger.info(f"Phase 2 completed in {phase_end - phase_start:.2f} seconds")
 
@@ -157,6 +157,8 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         create_lookup_project_to_project_phase_category(target_db_url, target_schema)
         logger.info(f"Merging project status table columns - 8d")
         merge_project_status_columns(target_db_url, target_schema)
+        logger.info(f"Populate master_entity table - 8e")
+        update_master_entity_full_name(target_db_url, target_schema)
         phase_end = time.time()
         logger.info(f"Phase 8 completed in {phase_end - phase_start:.2f} seconds")
 

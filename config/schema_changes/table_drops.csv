@@ -1,6 +1,7 @@
 database,table_name
 both,project_to_be_completed_in
 both,entity_category
+both,key_achievments
 pulse,Entity_key_achievements
 both,project_pricing_type
 both,Project_summary_controls_manager

@@ -85,15 +85,14 @@ project_status_weightage,design,varchar,float
 project_status_weightage,contractor_procurement,varchar,float
 project_status_weightage,construction,varchar,float
 project_status_weightage,handover,varchar,float
-project_status_weightage,overall,varchar,float
 project_status_weightage,last_updated,varchar,datetime
 project_summary,decree_date,varchar,date
 project_summary,planned_finish_percentage,varchar,float
 project_summary,period,varchar,date
 project_summary,actual_finish_percentage,varchar,float
 project_summary,incidents,varchar,int
-project_summary,latitude,varchar,float
-project_summary,longitude,varchar,float
+project_summary,latitude,varchar,"decimal(9,6)"
+project_summary,longitude,varchar,"decimal(9,6)"
 project_summary,overall_planned_finish_date,varchar,date
 project_summary,overall_forecasted_finish_date,varchar,date
 project_summary,is_executive_project,bigint,bit
@@ -150,3 +149,5 @@ project_summary,is_subject_to_rebaseline,varchar,bit
 project_summary,is_external_lookup_for_health_and_safety,varchar,bit
 potential_budget_uplift_scope,cost_impact,varchar,float
 key_achievements,key_achievement_sorting_order,nvarchar,int
+project_summary,man_hours,float,int
+project_status,pte,nvarchar,"decimal(18,2)"

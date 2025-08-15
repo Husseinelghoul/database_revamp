@@ -1,5 +1,4 @@
 import json
-from sqlalchemy.engine import Connection
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -474,3 +473,92 @@ def merge_project_status_columns(target_db_url, schema_name):
         logger.error(f"A critical error occurred during the column merge process: {e}", exc_info=True)
         # Re-raise the exception to allow the calling code to handle it
         raise
+
+def update_master_entity_full_name(target_db_url: str, schema_name: str):
+    """
+    Updates the 'full_name' column in the master_owning_entity table.
+
+    This function first ensures the 'full_name' column exists by dropping it if present
+    and then creating it. It then joins master_owning_entity with entity_score and
+    populates the new 'full_name' column from entity_score.executive_entity.
+    The entire process is performed within a single transaction.
+
+    Args:
+        target_db_url (str): The SQLAlchemy connection string for the target database.
+        schema_name (str): The name of the database schema (e.g., 'dbo').
+    """
+
+    def sql_clean_string(column_ref: str) -> str:
+        """Creates a SQL snippet for cleaning a string column to be used in a JOIN."""
+        return f"LOWER(TRIM(REPLACE(REPLACE(REPLACE(CAST({column_ref} AS NVARCHAR(MAX)), CHAR(13), ''), CHAR(10), ''), CHAR(160), ' ')))"
+
+    # --- Configuration for the column to be managed ---
+    table_name = "master_owning_entity"
+    column_name = "full_name"
+    # Define a suitable data type. NVARCHAR(255) is a good default for a name field.
+    column_type = "NVARCHAR(255)"
+    
+    # Use quotes for safety with schema and table names
+    safe_full_table_name = f'"{schema_name}"."{table_name}"'
+    safe_column_name = f'"{column_name}"'
+
+    logger.debug(f"Starting update process for '{table_name}.{column_name}'.")
+    engine = None
+    try:
+        engine = create_engine(target_db_url)
+        with engine.connect() as connection:
+            # Wrap the entire logic in a single transaction for atomicity
+            with connection.begin() as transaction:
+                
+                # === 1. MANAGE THE COLUMN (NEW LOGIC) ===
+                logger.debug(f"Checking for existence of column '{column_name}' in table '{safe_full_table_name}'.")
+
+                # Query to check if the column exists in the schema
+                check_col_query = text("""
+                    SELECT COUNT(*)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table AND COLUMN_NAME = :column
+                """)
+                
+                result = connection.execute(check_col_query, {"schema": schema_name, "table": table_name, "column": column_name})
+                column_exists = result.scalar() > 0
+
+                if column_exists:
+                    logger.debug(f"Column '{column_name}' exists. Dropping it to ensure a clean slate.")
+                    drop_col_sql = text(f'ALTER TABLE {safe_full_table_name} DROP COLUMN {safe_column_name}')
+                    connection.execute(drop_col_sql)
+
+                logger.debug(f"Creating column '{column_name}' with type {column_type}.")
+                add_col_sql = text(f'ALTER TABLE {safe_full_table_name} ADD {safe_column_name} {column_type} NULL')
+                connection.execute(add_col_sql)
+                
+                # === 2. PERFORM THE UPDATE (ORIGINAL LOGIC) ===
+                logger.debug(f"Populating the new '{column_name}' column.")
+                
+                join_condition = f"{sql_clean_string('moe.owning_entity')} = {sql_clean_string('es.label')}"
+
+                update_sql_query = text(f"""
+                UPDATE moe
+                SET
+                    moe.full_name = es.executive_entity
+                FROM
+                    {safe_full_table_name} AS moe
+                JOIN
+                    "{schema_name}"."entity_score" AS es ON {join_condition}
+                WHERE
+                    es.executive_entity IS NOT NULL;
+                """)
+                
+                update_result = connection.execute(update_sql_query)
+                logger.debug(f"Update complete. {update_result.rowcount} row(s) were affected.")
+                
+            return {"status": "success", "rows_affected": update_result.rowcount}
+
+    except Exception as e:
+        logger.error(f"An error occurred during the database operation: {e}")
+        # The transaction is automatically rolled back on error
+        return {"status": "error", "message": str(e)}
+    finally:
+        if engine:
+            engine.dispose()
+            logger.debug("Database connection closed.")
