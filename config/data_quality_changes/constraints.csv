@@ -3,7 +3,6 @@ project_sustainability,pearl_rating_percentage,MAX,8,,
 project_sustainability,pearl_rating_percentage,MIN,0,,
 project_summary,period;project_name,UNIQUE,,,
 project_kpi,period;project_name;project_type;kpi,UNIQUE,,,
-project_status_weightage,period;project_name,UNIQUE,,,
 project_sustainability,period;project_name,UNIQUE,,,
 master_consultant,consultant,UNIQUE,,,
 master_contract_type,contract_type,UNIQUE,,,
@@ -40,4 +39,3 @@ master_project_classification,project_classification,UNIQUE,,,
 commercial_status,period;project_name,UNIQUE,,,
 Vw_UniqueProjectStatus,fact.period;fact.project_name;lookup.phase;fact.master_project_stage_status_id;fact.master_project_sub_stage_id;lookup.master_project_phase_category_id	,UNIQUE_VIEW,,project_status AS fact;lookup_project_to_phase AS lookup,fact.period = lookup.period AND fact.project_name = lookup.project_name
 Vw_UniqueContractVoStatus,fact.period;fact.project_name;lookup.phase;fact.master_contract_type_id;fact.master_contractor_id;fact.master_pmc_consultant_id;fact.master_consultant_id	,UNIQUE_VIEW,,contract_vo_status AS fact;lookup_project_to_phase AS lookup	,fact.period = lookup.period AND fact.project_name = lookup.project_name
-project_management,period;project_name;project_status_id,UNIQUE,,,
