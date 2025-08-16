@@ -163,3 +163,4 @@ master_procurement_manager,location,nvarchar,nvarchar(MAX)
 master_procurement_manager,phone_number,nvarchar,nvarchar(MAX)
 project_summary,number_of_grievances,float,int
 project_sustainability,emissions_per_m2,float,"DECIMAL(10,4)"
+project_milestone,duration_from_start,float,int
