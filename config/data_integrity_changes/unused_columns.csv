@@ -94,7 +94,6 @@ project_status,revised_plan_percentage
 project_status,actual_percentage
 project_status,actual_plan_percentage
 project_summary,district
-entity_score,label
-entity_score,executing_entity
 project_status,predecessor
 project_status,successor
+key_risks,risk_probability

@@ -28,7 +28,7 @@ insights,entity_key_achievements,start_date
 insights,project_summary,sub_owning_entity
 insights,Master_SVP,new_id
 both,project_management,project_management_var
-both,project_milestone,key_risk_sorting_order
+both,SPA,key_risk_sorting_order
 both,project_management,cost_per_sqm
 both,project_management,forecast_completion_last_week
 both,project_summary,lti
@@ -38,3 +38,4 @@ both,project_status,buffer_in_days
 both,project_status,eot_to_entity
 both,project_status,variance_in_days
 both,project_stage_weightage,Overall
+both,unifier_sync_status,unifier_sync_status

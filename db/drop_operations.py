@@ -21,6 +21,7 @@ def drop_tables(target_db_url: str, schema_name: str, application: str, csv_path
     try:
         drops_df = load_schema_changes(csv_path)
         if not drops_df.empty:
+            # This logic correctly handles the specific application and 'both'
             app_drops_df = drops_df[drops_df["database"].isin([application, 'both'])]
             for table_name in app_drops_df['table_name']:
                 tables_to_drop.add(table_name)
@@ -60,21 +61,36 @@ def drop_tables(target_db_url: str, schema_name: str, application: str, csv_path
                 continue # Continue to the next table
 
 
-def drop_columns(target_db_url, schema_name, application: str, csv_path="config/schema_changes/column_drops.csv"):
-    """Drop columns specified in the CSV file."""
-    drops_df = load_schema_changes(csv_path)
+def drop_columns(target_db_url: str, schema_name: str, application: str, csv_path="config/schema_changes/column_drops.csv"):
+    """
+    Drop columns specified in the CSV file.
+    Supports dropping columns for a specific application or for 'both'.
+    """
+    try:
+        drops_df = load_schema_changes(csv_path)
+    except Exception as e:
+        logger.error(f"Failed to load or process the column drops CSV file '{csv_path}': {e}")
+        return
+
     if "database" in drops_df.columns:
-        drops_df = drops_df[drops_df["database"] == application]
+        # --- THIS IS THE KEY CHANGE ---
+        # Filter the DataFrame to include rows for the specific application OR 'both'
+        drops_df = drops_df[drops_df["database"].isin([application, 'both'])]
+    
     if drops_df.empty:
-        logger.debug(f"No columns to drop for {application}.")
+        logger.debug(f"No columns to drop for application '{application}'.")
         return
     
     engine = create_engine(target_db_url)
     with engine.begin() as conn:
         for _, row in drops_df.iterrows():
+            table_name = row['table_name']
+            column_name = row['column_name']
             try:
-                conn.execute(text(f"ALTER TABLE {schema_name}.{row['table_name']} DROP COLUMN IF EXISTS {row['column_name']}"))
-                logger.debug(f"Dropped column {row['column_name']} from {schema_name}.{row['table_name']}")
-            except Exception as e:
-                logger.error(f"Failed to drop column {row['column_name']} from {schema_name}.{row['table_name']}: {e}")
-
+                # Quoting identifiers (schema, table, column) is safer
+                sql_command = text(f'ALTER TABLE "{schema_name}"."{table_name}" DROP COLUMN IF EXISTS "{column_name}"')
+                conn.execute(sql_command)
+                logger.debug(f"SUCCESS: Dropped column '{column_name}' from table '{schema_name}.{table_name}'")
+            except SQLAlchemyError as e:
+                logger.error(f"FAILED to drop column '{column_name}' from table '{schema_name}.{table_name}': {e}")
+                continue # Continue to the next column

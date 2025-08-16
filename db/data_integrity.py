@@ -22,10 +22,7 @@ def add_primary_keys(target_db_url, schema_name):
         logger.error(f"This script is specifically tuned for MSSQL. Detected dialect: {dialect_name}.")
         return
 
-    excluded_tables = (
-        'app_user', 'user_view_permission', 'user_project', 'user_entity',
-        'sessions', 'role_template'
-    )
+    excluded_tables = ('sessions')
     excluded_tables_sql_str = ", ".join([f"'{table}'" for table in excluded_tables])
 
     discovery_sql = text(f"""
