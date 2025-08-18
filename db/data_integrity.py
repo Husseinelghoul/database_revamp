@@ -1,8 +1,10 @@
 import json
+from pathlib import Path
+
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
-from pathlib import Path
+
 from config.constants import PROCESSING_CHUNK_SIZE
 from utils.logger import setup_logger
 

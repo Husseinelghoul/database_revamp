@@ -1,8 +1,10 @@
 import sys
+
 from config.constants import PHASES_TO_SKIP
 from config.db_config import build_connection_url, load_config
 from engine.sync_engine import sync_databases
 from utils.logger import setup_logger
+
 
 def run_sync_for_app(app, logger, config):
     """

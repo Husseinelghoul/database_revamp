@@ -562,3 +562,63 @@ def update_master_entity_full_name(target_db_url: str, schema_name: str):
         if engine:
             engine.dispose()
             logger.debug("Database connection closed.")
+
+def set_health_safety_default(target_db_url: str, schema_name: str):
+    """
+    Sets a default value of 1 for the health and safety lookup column.
+    """
+    table_name = 'project_summary'
+    column_name = 'is_external_lookup_for_health_and_safety'
+    constraint_name = f"DF_{table_name}_{column_name}"
+
+    logger.debug(
+        f"Attempting to set default value for column '{column_name}' "
+        f"in table '{schema_name}.{table_name}'."
+    )
+
+    set_default_sql = text(f"""
+        DECLARE @SchemaName NVARCHAR(128) = :schema_name;
+        DECLARE @TableName NVARCHAR(128) = :table_name;
+        DECLARE @ColumnName NVARCHAR(128) = :column_name;
+        DECLARE @ExistingConstraintName NVARCHAR(255);
+        DECLARE @DynamicSQL NVARCHAR(MAX);
+
+        SELECT @ExistingConstraintName = dc.name
+        FROM sys.default_constraints dc
+        JOIN sys.columns c ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id
+        JOIN sys.tables t ON c.object_id = t.object_id
+        JOIN sys.schemas s ON t.schema_id = s.schema_id
+        WHERE s.name = @SchemaName
+          AND t.name = @TableName
+          AND c.name = @ColumnName;
+
+        IF @ExistingConstraintName IS NOT NULL
+        BEGIN
+            SET @DynamicSQL = N'ALTER TABLE ' + QUOTENAME(@SchemaName) + N'.' + QUOTENAME(@TableName) +
+                              N' DROP CONSTRAINT ' + QUOTENAME(@ExistingConstraintName);
+            EXEC sp_executesql @DynamicSQL;
+        END;
+
+        ALTER TABLE {schema_name}.{table_name}
+        ADD CONSTRAINT {constraint_name} DEFAULT 1 FOR {column_name};
+    """)
+
+    try:
+        engine = create_engine(target_db_url)
+        with engine.begin() as conn:
+            conn.execute(
+                set_default_sql,
+                {
+                    "schema_name": schema_name,
+                    "table_name": table_name,
+                    "column_name": column_name
+                }
+            )
+        logger.debug(
+            f"Successfully set default value for '{column_name}' to 1."
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to set default constraint on '{schema_name}.{table_name}': {e}"
+        )
+        raise
