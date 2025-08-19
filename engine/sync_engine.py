@@ -196,7 +196,7 @@ def sync_databases(source_db_url, target_db_url, source_schema: str, target_sche
         logger.info("Skipping Phase 11: Data Quality Rules")
     else:
         phase_start = time.time()
-        apply_data_quality_rules(target_db_url, target_schema)
+        apply_data_quality_rules(target_db_url, target_schema, csv_path='config/data_quality_changes/constraints.csv')
         phase_end = time.time()
         logger.info(f"Phase 11 completed in {phase_end - phase_start:.2f} seconds")
         
